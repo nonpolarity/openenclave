@@ -173,7 +173,6 @@ if (OE_SGX)
     list(APPEND PLATFORM_SDK_ONLY_SRC
       sgx/windows/aep.asm
       sgx/windows/enter.asm
-      sgx/windows/entersim.asm
       sgx/windows/host_context.asm
       sgx/windows/exception.c
       sgx/windows/switchless.c
