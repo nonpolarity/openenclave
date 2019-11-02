@@ -8,3 +8,4 @@ if (BUILD_ENCLAVES)
 endif()
 
 add_enclave_test(tests/cppException cppException_host cppException_enc)
+set_tests_properties(tests/cppException PROPERTIES SKIP_RETURN_CODE 2)
