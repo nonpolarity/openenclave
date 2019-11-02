@@ -7,5 +7,5 @@ if (BUILD_ENCLAVES)
 	add_subdirectory(enc)
 endif()
 
-add_enclave_test(tests/abortStatus abortStatus_host abortStatus_enc)
-set_tests_properties(tests/abortStatus PROPERTIES SKIP_RETURN_CODE 2)
+add_enclave_test(tests/stack_smashing_protector ssp_host ssp_enc)
+set_tests_properties(tests/stack_smashing_protector PROPERTIES SKIP_RETURN_CODE 2)
