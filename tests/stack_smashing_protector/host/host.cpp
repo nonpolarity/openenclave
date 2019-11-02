@@ -20,18 +20,7 @@ int main(int argc, const char* argv[])
         exit(1);
     }
 
-    /*
-       Some expection test will fail in simulation mode, due to the failure of
-       isolation of exception in enclave then host process will be terminated.
-    */
     const uint32_t flags = oe_get_create_flags();
-    if ((flags & OE_ENCLAVE_FLAG_SIMULATE) != 0)
-    {
-        printf("=== Skipped unsupported test in simulation mode "
-               "(stack_smashing_protector)\n");
-        return SKIP_RETURN_CODE;
-    }
-
     oe_enclave_t* enclave = NULL;
     oe_result_t result = oe_create_ssp_enclave(
         argv[1], OE_ENCLAVE_TYPE_SGX, flags, NULL, 0, &enclave);

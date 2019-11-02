@@ -86,7 +86,7 @@ void td_push_callsite(td_t* td, Callsite* callsite)
 **     design of this structure, the debugger need the GS segment register
 **     to find td_t. Since td_t is moved to current FS page, now GS segment
 **     register needs to point to this page. Do not change the GS segment
-**     resigter until it is solved on Windows debuger.
+**     resigter until it is solved on Windows debugger.
 **     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 **
 ** td_from_tcs()
