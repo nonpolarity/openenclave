@@ -15,6 +15,8 @@
 
 #define THREAD_COUNT 3
 
+#define SKIP_RETURN_CODE 2
+
 typedef oe_result_t (*enc_fn)(oe_enclave_t*, int*);
 
 void foobar()
@@ -218,6 +220,18 @@ int main(int argc, const char* argv[])
     {
         fprintf(stderr, "Usage: %s ENCLAVE\n", argv[0]);
         exit(1);
+    }
+
+    /*
+       Some expection test will fail in simulation mode, due to the failure of
+       isolation of exception in enclave then host process will be terminated.
+    */
+    const uint32_t flags = oe_get_create_flags();
+    if ((flags & OE_ENCLAVE_FLAG_SIMULATE) != 0)
+    {
+        printf("=== Skipped unsupported test in simulation mode "
+               "(abortStatus)\n");
+        return SKIP_RETURN_CODE;
     }
 
     printf("=== This program is used to test enclave abort status.\n");
