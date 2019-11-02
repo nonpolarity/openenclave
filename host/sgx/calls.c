@@ -138,9 +138,9 @@ static oe_result_t _enter_sim(
      * must be immediately restored upon entry to host.
      * See __oe_dispatch_ocall.
      */
-    td = (td_t*)(enclave->addr + tcs->gsbase);
-    oe_set_gs_register_base(td);
-    oe_set_fs_register_base((void*)(enclave->addr + tcs->fsbase));
+    td = (td_t*)(enclave->addr + tcs->fsbase);
+    oe_set_fs_register_base(td);
+    oe_set_gs_register_base((void*)(enclave->addr + tcs->gsbase));
 
     /* Set td_t.simulate flag */
     td->simulate = true;
@@ -154,7 +154,7 @@ static oe_result_t _enter_sim(
 
     oe_enter_sim(tcs, aep, arg1, arg2, arg3, arg4, enclave);
 
-    /* Restore GS and GS registers. After this, host side library calls can be
+    /* Restore GS and FS registers. After this, host side library calls can be
      * safely called.
      */
     oe_set_fs_register_base(binding->host_fs);

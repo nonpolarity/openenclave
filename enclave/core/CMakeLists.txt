@@ -208,7 +208,7 @@ if (OE_SGX)
     target_compile_options(oecore PUBLIC
         -fPIE
         -nostdinc
-        -fno-stack-protector
+        -fstack-protector-strong
         -fvisibility=hidden
         # "The default without -fpic is 'initial-exec'; with -fpic the
         # default is 'global-dynamic'."

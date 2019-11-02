@@ -713,10 +713,12 @@ oe_result_t oe_call_host_function(
 **         +--------------------------------+
 **         | Guard Page                     |
 **         +--------------------------------+
-**         | GS page (contains thread data) |
+**         | GS page                        |
+**         +--------------------------------+
+**         | FS page (contains thread data) |
 **         +--------------------------------+
 **
-**     EENTER sets the GS segment register to refer to the GS page before
+**     EENTER sets the FS segment register to refer to the FS page before
 **     calling this function.
 **
 **     If the enclave should fault, SGX saves the registers in the SSA slot

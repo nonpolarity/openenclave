@@ -528,7 +528,7 @@ struct _oe_thread_data
     uint64_t __stack_base_addr;
     uint64_t __stack_limit_addr;
     uint64_t __first_ssa_gpr;
-    uint64_t __stack_guard; /* 0x28 for x64 */
+    uint64_t stack_guard; /* 0x28 for x64 */
     uint64_t __reserved_0;
     uint64_t __ssa_frame_size;
     uint64_t __last_error;
@@ -607,11 +607,11 @@ typedef struct _td
     uint64_t simulate;
 
     /* Reserved for thread-local variables. */
-    uint8_t thread_local_data[OE_THREAD_LOCAL_SPACE];
+    // uint8_t thread_local_data[OE_THREAD_LOCAL_SPACE];
 } td_t;
 OE_PACK_END
 
-OE_CHECK_SIZE(sizeof(td_t), 4096);
+OE_CHECK_SIZE(sizeof(td_t), 256);
 
 /* Get the thread data object for the current thread */
 td_t* oe_get_td(void);
