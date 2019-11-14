@@ -606,7 +606,8 @@ typedef struct _td
     /* Simulation mode is active if non-zero */
     uint64_t simulate;
 
-    /* Record the tcs address that we can get tcs from td_t itself rather than some hard-cored offset. */
+    /* Record the tcs address that we can get tcs from td_t itself rather than
+     * some hard-cored offset. */
     uint64_t tcs_address;
     /* Reserved for thread-local variables. */
     uint8_t thread_specific_data[OE_THREAD_SPECIFIC_DATA_SIZE];
