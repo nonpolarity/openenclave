@@ -708,7 +708,7 @@ static oe_result_t _patch(oe_enclave_image_t* image, size_t enclave_end)
             oe_round_up_to_multiple(image->tbss_size, image->tbss_size);
     }
 
-    if (aligned_size > OE_THREAD_LOCAL_SPACE)
+    if (aligned_size > OE_THREAD_SPECIFIC_DATA_SIZE)
     {
         OE_TRACE_ERROR(
             "Thread-local variables exceed available thread-local space.\n");

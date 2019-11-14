@@ -565,7 +565,7 @@ oe_thread_data_t* oe_get_thread_data(void);
 
 #define TD_MAGIC 0xc90afe906c5d19a3
 
-#define OE_THREAD_LOCAL_SPACE (3840)
+#define OE_THREAD_SPECIFIC_DATA_SIZE (3832)
 
 typedef struct _callsite Callsite;
 
@@ -606,12 +606,15 @@ typedef struct _td
     /* Simulation mode is active if non-zero */
     uint64_t simulate;
 
+    /* Record the tcs address that we can get tcs from td_t itself rather than
+     * some hard-cored offset. */
+    uint64_t tcs_address;
     /* Reserved for thread-local variables. */
-    // uint8_t thread_local_data[OE_THREAD_LOCAL_SPACE];
+    uint8_t thread_specific_data[OE_THREAD_SPECIFIC_DATA_SIZE];
 } td_t;
 OE_PACK_END
 
-OE_CHECK_SIZE(sizeof(td_t), 256);
+OE_CHECK_SIZE(sizeof(td_t), 4096);
 
 /* Get the thread data object for the current thread */
 td_t* oe_get_td(void);
