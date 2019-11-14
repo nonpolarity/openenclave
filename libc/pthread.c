@@ -41,7 +41,7 @@
 #undef pthread
 #endif
 
-OE_STATIC_ASSERT(sizeof(struct __pthread) <= OE_THREAD_LOCAL_SPACE);
+OE_STATIC_ASSERT(sizeof(struct __pthread) <= OE_THREAD_SPECIFIC_DATA_SIZE);
 OE_STATIC_ASSERT(sizeof(pthread_once_t) == sizeof(oe_once_t));
 OE_STATIC_ASSERT(sizeof(pthread_spinlock_t) == sizeof(oe_spinlock_t));
 OE_STATIC_ASSERT(sizeof(pthread_mutex_t) >= sizeof(oe_mutex_t));
