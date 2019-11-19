@@ -111,11 +111,19 @@ void td_pop_callsite(td_t* td)
 /*
 **==============================================================================
 **
+**     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+**     According to the implementation of Windows debugger and the previous
+**     design of this structure, the debugger need the GS segment register
+**     to find td_t. Since td_t is moved to current FS page, now GS segment
+**     register needs to point to this page. Do not change the GS segment
+**     resigter until it is solved on Windows debuger.
+**     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+**
 ** td_from_tcs()
 **
 **     This function calculates the address of the td_t (thread data structure)
 **     relative to the TCS (Thread Control Structure) page. The td_t resides in
-**     a page pointed to by the GS (segment register). This page occurs 4 pages
+**     a page pointed to by the FS (segment register). This page occurs 5 pages
 **     after the TCS page. The layout is as follows:
 **
 **         +----------------------------+
@@ -127,14 +135,16 @@ void td_pop_callsite(td_t* td)
 **         +----------------------------+
 **         | Guard Page                 |
 **         +----------------------------+
-**         | GS Segment (contains td_t) |
+**         | Thread local storage       |
+**         +----------------------------+
+**         | FS/GS Page (td_t + tsp)    |
 **         +----------------------------+
 **
 **     This layout is determined by the enclave builder. See:
 **
-**         ../host/build.c (_add_control_pages)
+**         ../host/sgx/create.c (_add_control_pages)
 **
-**     The GS segment register is set by the EENTER instruction and the td_t
+**     The FS segment register is set by the EENTER instruction and the td_t
 **     page is zero filled upon initial enclave entry. Software sets the
 **     contents of the td_t when it first determines that td_t.self_addr is
 **     zero.
@@ -214,26 +224,28 @@ bool td_initialized(td_t* td)
 ** td_init()
 **
 **     Initialize the thread data structure (td_t) if not already initialized.
-**     The td_t resides in the GS segment and is located relative to the TCS.
+**     The td_t resides in the FS segment and is located relative to the TCS.
 **     Refer to the following layout.
 **
-**         +-------------------------+
-**         | Guard Page              |
-**         +-------------------------+
-**         | Stack pages             |
-**         +-------------------------+
-**         | Guard Page              |
-**         +-------------------------+
-**         | TCS Page                |
-**         +-------------------------+
-**         | SSA (State Save Area) 0 |
-**         +-------------------------+
-**         | SSA (State Save Area) 1 |
-**         +-------------------------+
-**         | Guard Page              |
-**         +-------------------------+
-**         | GS page (contains td_t) |
-**         +-------------------------+
+**         +----------------------------+
+**         | Guard Page                 |
+**         +----------------------------+
+**         | Stack pages                |
+**         +----------------------------+
+**         | Guard Page                 |
+**         +----------------------------+
+**         | TCS Page                   |
+**         +----------------------------+
+**         | SSA (State Save Area) 0    |
+**         +----------------------------+
+**         | SSA (State Save Area) 1    |
+**         +----------------------------+
+**         | Guard Page                 |
+**         +----------------------------+
+**         | Thread local storage       |
+**         +----------------------------+
+**         | FS/GS Page (td_t + tsp)    |
+**         +----------------------------+
 **
 **     Note: the host register fields are pre-initialized by oe_enter:
 **
@@ -254,8 +266,12 @@ void td_init(td_t* td)
         /* Set pointer to self */
         td->base.self_addr = (uint64_t)td;
 
-        /* initilize the stack_guard at %%fs:0x28 with a random number */
+        /* initialize the stack_guard at %%fs:0x28 with a random number.
+        oe_rdrand is a warpper of rdrand. rdrand is a hardware-implemented
+        Pseudo Random Generator, and it is repeatedly seeeded by a high entropy
+        source. */
         td->base.stack_guard = oe_rdrand();
+
         /* Set the magic number */
         td->magic = TD_MAGIC;
 
@@ -306,13 +322,13 @@ void td_clear(td_t* td)
         oe_abort();
 
     /* Save the stack guard before cleanup. */
-    uint64_t stack_guard = td->base.stack_guard;
+    // uint64_t stack_guard = td->base.stack_guard;
 
     /* Clear base structure */
     memset(&td->base, 0, sizeof(td->base));
 
     /* Restore the stack guard after cleanup. */
-    td->base.stack_guard = stack_guard;
+    // td->base.stack_guard = stack_guard;
 
     /* Clear the magic number */
     td->magic = 0;
