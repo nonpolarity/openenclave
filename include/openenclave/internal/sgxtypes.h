@@ -505,10 +505,10 @@ OE_CHECK_SIZE(OE_OFFSETOF(sgx_tcs_t, u.entry), 72);
 **
 **     This structure defines information about an enclave thread. Each
 **     instance is associated with one thread control structure (TCS). This
-**     structure resides in the GS segment page (referenced by the GS segment
+**     structure resides in the FS segment page (referenced by the FS segment
 **     register). A thread obtains its thread data structure by calling
 **     oe_get_thread_data(), which fetches the address at offset zero in
-**     the GS segment register (%gs:0) which contains
+**     the FS segment register (%fs:0) which contains
 *oe_thread_data_t.self_addr.
 **
 **==============================================================================

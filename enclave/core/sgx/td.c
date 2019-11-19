@@ -111,11 +111,19 @@ void td_pop_callsite(td_t* td)
 /*
 **==============================================================================
 **
+**     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+**     According to the implementation of Windows debugger and the previous
+**     design of this structure, the debugger need the GS segment register
+**     to find td_t. Since td_t is moved to current FS page, now GS segment
+**     register needs to point to this page. Do not change the GS segment
+**     resigter until it is solved on Windows debuger.
+**     !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+**
 ** td_from_tcs()
 **
 **     This function calculates the address of the td_t (thread data structure)
 **     relative to the TCS (Thread Control Structure) page. The td_t resides in
-**     a page pointed to by the GS (segment register). This page occurs 4 pages
+**     a page pointed to by the FS (segment register). This page occurs 4 pages
 **     after the TCS page. The layout is as follows:
 **
 **         +----------------------------+
@@ -127,14 +135,16 @@ void td_pop_callsite(td_t* td)
 **         +----------------------------+
 **         | Guard Page                 |
 **         +----------------------------+
-**         | GS Segment (contains td_t) |
+**         | Thread local storage       |
+**         +----------------------------+
+**         | FS/GS Page (td_t + tsp)    |
 **         +----------------------------+
 **
 **     This layout is determined by the enclave builder. See:
 **
-**         ../host/build.c (_add_control_pages)
+**         ../host/sgx/create.c (_add_control_pages)
 **
-**     The GS segment register is set by the EENTER instruction and the td_t
+**     The FS segment register is set by the EENTER instruction and the td_t
 **     page is zero filled upon initial enclave entry. Software sets the
 **     contents of the td_t when it first determines that td_t.self_addr is
 **     zero.

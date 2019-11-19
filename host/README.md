@@ -48,11 +48,15 @@ see [create.c](create.c)).
         +----------------------------------------+    |
         | Guard page                             |    |
         +----------------------------------------+    |
-        | Segment Page: (FS or GS)               |    |
-        |     (contains thread data structure)   |    |
+        | Thread local storage                   |    |
         +----------------------------------------+    |
-        | Thread specific data (TSD) Page        |    |
+        | Segment Page: (FS)                     |    |
+        | (contains thread data structure        |    |
+        | and Thread specific data (TSD))        |    |
         +----------------------------------------+ <--+
         | Padding Pages (must be a power of two) |
         +----------------------------------------+
 
+According to the implementation of Windows debugger and the previous
+design of this structure, the debugger need the GS segment register
+to find td_t. Now GS points to the same page as FS.

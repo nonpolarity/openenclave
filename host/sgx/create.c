@@ -166,7 +166,7 @@ static oe_result_t _add_control_pages(
      *     page2 - state-save-area (SSA) slot (zero-filled)
      *     page3 - state-save-area (SSA) slot (zero-filled)
      *     page4 - guard page
-     *     page5 - segment space for fs or gs register (holds thread data).
+     *     page5 - thread local storage page.
      *     page6 - extra segment space for thread-specific data.
      */
 
