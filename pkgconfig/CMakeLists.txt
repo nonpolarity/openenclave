@@ -26,8 +26,7 @@ set(ENCLAVE_CFLAGS_LIST
   -m64
   -fPIE
   -ftls-model=local-exec
-  -fvisibility=hidden
-  -fno-stack-protector)
+  -fvisibility=hidden)
 
 set(ENCLAVE_CFLAGS_CLANG_LIST ${ENCLAVE_CFLAGS_LIST} ${SPECTRE_MITIGATION_FLAGS})
 list(JOIN ENCLAVE_CFLAGS_CLANG_LIST " " ENCLAVE_CFLAGS_CLANG)
