@@ -58,6 +58,10 @@ see [create.c](create.c)).
         +----------------------------------------+
 The thread data (td) object is always populated at the start of the
 FS segment, thus FS segment regiter points to td.
-According to the implementation of Windows debugger and the previous
-design of this structure, the debugger need the GS segment register
-to find td_t. Now GS points to the same page as FS.
+
+The existing Windows SGX enclave debugger finds the start of the thread data
+by assuming that it is located at the start of the GS segment. i.e. it adds the
+enclave base address and the offset to the GS segment stored in TCS.OGSBASGX.
+OE SDK uses the FS segment for this purpose and has no separate use for the
+GS register, so we point it at the FS segment to preserve the Windows debugger
+behavior.
