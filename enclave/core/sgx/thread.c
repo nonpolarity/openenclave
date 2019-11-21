@@ -793,9 +793,7 @@ oe_result_t oe_rwlock_unlock(oe_rwlock_t* read_write_lock)
 **==============================================================================
 */
 
-#define MAX_KEYS (OE_PAGE_SIZE / sizeof(void*))
-/* The first several bytes are reserved for thread data. */
-#define MIN_KEYS ((sizeof(td_t) - OE_THREAD_SPECIFIC_DATA_SIZE) / sizeof(void*))
+#define MAX_KEYS (OE_THREAD_SPECIFIC_DATA_SIZE / sizeof(void*))
 
 typedef struct _key_slot
 {
@@ -829,7 +827,7 @@ oe_result_t oe_thread_key_create(
     {
         oe_spin_lock(&_lock);
 
-        for (unsigned int i = MIN_KEYS; i < MAX_KEYS; i++)
+        for (unsigned int i = 0; i < MAX_KEYS; i++)
         {
             /* If this key is available */
             if (!_slots[i].used)
@@ -855,7 +853,7 @@ oe_result_t oe_thread_key_create(
 oe_result_t oe_thread_key_delete(oe_thread_key_t key)
 {
     /* If key parameter is invalid */
-    if (key < MIN_KEYS || key >= MAX_KEYS)
+    if (key < 0 || key >= MAX_KEYS)
         return OE_INVALID_PARAMETER;
 
     /* Mark this key as unused */
@@ -877,7 +875,7 @@ oe_result_t oe_thread_setspecific(oe_thread_key_t key, const void* value)
     void** tsd_page;
 
     /* If key parameter is invalid */
-    if (key < MIN_KEYS || key >= MAX_KEYS)
+    if (key < 0 || key >= MAX_KEYS)
         return OE_INVALID_PARAMETER;
 
     if (!(tsd_page = _get_tsd_page()))
@@ -892,7 +890,7 @@ void* oe_thread_getspecific(oe_thread_key_t key)
 {
     void** tsd_page;
 
-    if (key < MIN_KEYS || key >= MAX_KEYS)
+    if (key < 0 || key >= MAX_KEYS)
         return NULL;
 
     if (!(tsd_page = _get_tsd_page()))
@@ -911,7 +909,7 @@ void oe_thread_destruct_specific(void)
         oe_spin_lock(&_lock);
         {
             /* For each thread-specific-data key */
-            for (oe_thread_key_t key = MIN_KEYS; key < MAX_KEYS; key++)
+            for (oe_thread_key_t key = 0; key < MAX_KEYS; key++)
             {
                 /* If this key is in use: */
                 if (_slots[key].used)
