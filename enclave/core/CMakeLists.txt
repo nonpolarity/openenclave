@@ -68,6 +68,7 @@ if (OE_SGX)
         sgx/sched_yield.c
         sgx/spinlock.c
         sgx/td.c
+        sgx/td_basic.c
         sgx/thread.c
         sgx/tracee.c
         sgx/enter.S
@@ -76,6 +77,8 @@ if (OE_SGX)
         sgx/longjmp.S
         sgx/setjmp.S)
 
+    set_source_files_properties(sgx/td_basic.c PROPERTIES
+        COMPILE_FLAGS -fno-stack-protector)
     # OS specific sources for SGX.
     if (UNIX OR USE_CLANGW)
         list(APPEND PLATFORM_SRC

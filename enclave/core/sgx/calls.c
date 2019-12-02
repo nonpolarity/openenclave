@@ -340,6 +340,19 @@ static void _handle_ecall(
     uint64_t* output_arg1,
     uint64_t* output_arg2)
 {
+    /* To keep status of td consistent before and after _handle_ecall, td_init
+     is moved into _handle_ecall. In this way _handle_ecall will not trigger
+     stack check fail by accident. Of couse not all function have the
+     opportunity to keep such consistency. Such basic functions are moved to a
+     separate source file and the stack protector is disabled by force
+     through fno-stack-protector option. */
+
+    /* Initialize thread data structure (if not already initialized) */
+    if (!td_initialized(td))
+    {
+        td_init(td);
+    }
+
     oe_result_t result = OE_OK;
 
     /* Insert ECALL context onto front of td_t.ecalls list */
@@ -816,10 +829,6 @@ void __oe_handle_main(
 
     /* Get pointer to the thread data structure */
     td_t* td = td_from_tcs(tcs);
-
-    /* Initialize thread data structure (if not already initialized) */
-    if (!td_initialized(td))
-        td_init(td);
 
     /* If this is a normal (non-exception) entry */
     if (cssa == 0)
