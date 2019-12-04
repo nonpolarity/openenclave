@@ -8,3 +8,4 @@ if (BUILD_ENCLAVES)
 endif()
 
 add_enclave_test(tests/abortStatus abortStatus_host abortStatus_enc)
+set_tests_properties(tests/abortStatus PROPERTIES SKIP_RETURN_CODE 2)

@@ -10,6 +10,8 @@
 #include <cstring>
 #include "cppException_u.h"
 
+#define SKIP_RETURN_CODE 2
+
 void TestCppException(oe_enclave_t* enclave)
 {
     printf("=== %s() \n", __FUNCTION__);
@@ -43,8 +45,17 @@ int main(int argc, const char* argv[])
 
     printf("=== This program is used to test basic cpp exception "
            "functionalities.\n");
-
+    /*
+       Some expection test will fail in simulation mode, due to the failure of
+       isolation of exception in enclave then host process will be terminated.
+    */
     const uint32_t flags = oe_get_create_flags();
+    if ((flags & OE_ENCLAVE_FLAG_SIMULATE) != 0)
+    {
+        printf("=== Skipped unsupported test in simulation mode "
+               "(cppException)\n");
+        return SKIP_RETURN_CODE;
+    }
 
     result = oe_create_cppException_enclave(
         argv[1], OE_ENCLAVE_TYPE_SGX, flags, NULL, 0, &enclave);
