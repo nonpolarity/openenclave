@@ -111,6 +111,7 @@ elseif (WIN32)
     crypto/bcrypt/rsa.c
     crypto/bcrypt/sha.c
     windows/hostthread.c
+    windows/dirent.c
     windows/syscall.c
     windows/time.c)
 else()

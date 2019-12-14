@@ -34,6 +34,7 @@
 #include "../hostthread.h"
 #include "../../common/oe_host_socket.h"
 #include "syscall_u.h"
+#include "dirent.h"
 
 /*
 **==============================================================================
