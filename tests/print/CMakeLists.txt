@@ -4,17 +4,21 @@
 add_subdirectory(host)
 
 if (BUILD_ENCLAVES)
-	add_subdirectory(enc)
+    add_subdirectory(enc)
 
-	# note: this is Linux-specific
-	add_test(NAME tests/print
-		WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
-		COMMAND sh -c "OE_LOG_LEVEL=NONE host/print_host ./enc/print_enc >testout.stdout 2>testout.stderr &&
-			diff ${CMAKE_CURRENT_SOURCE_DIR}/printhost.stdout testout.stdout &&
-			diff ${CMAKE_CURRENT_SOURCE_DIR}/printhost.stderr testout.stderr"
-		)
+    #note: this is Linux-specific
+    if (WIN32)
+        set(BENCHDIR ${CMAKE_CURRENT_SOURCE_DIR}/bench/windows)
+    else()
+        set(BENCHDIR ${CMAKE_CURRENT_SOURCE_DIR}/bench/others)
+    endif()
+
+    add_test(NAME tests/print
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+        COMMAND sh -c "OE_LOG_LEVEL=NONE host/print_host ./enc/print_enc >testout.stdout 2>testout.stderr &&
+            diff ${BENCHDIR}/printhost.stdout testout.stdout &&
+            diff ${BENCHDIR}/printhost.stderr testout.stderr"
+        )
 else()
-
-	add_enclave_test(tests/print print_host print_enc)
-
+    add_enclave_test(tests/print print_host print_enc)
 endif()

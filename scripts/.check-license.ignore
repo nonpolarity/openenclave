@@ -35,6 +35,7 @@ tests/mbed/tests\..*$
 3rdparty/optee/optee_os/.*
 tools/oeedger8r/esy\.lock/.*
 tools/oeedger8r/intel/.*
+tests/print/bench/.*
 
 # Files
 3rdparty/LICENSES
@@ -61,8 +62,6 @@ host/linux/pe\.h
 include/openenclave/internal/queue\.h
 samples/file-encryptor/testfile
 tests/ocall/debugging\.txt
-tests/print/printhost\.stderr
-tests/print/printhost\.stdout
 tests/str/test1\.txt
 tools/oeedger8r/src/\.ocamlformat
 tools/oeedger8r/src/\.ocamlformat-ignore
