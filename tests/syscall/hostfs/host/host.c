@@ -38,7 +38,7 @@ int main(int argc, const char* argv[])
 
     printf("=== passed all tests (test_hostfs)\n");
 #if defined(_WIN32)
-    free(tmp_dir);
+    free((char*)tmp_dir);
 #endif
 
     return 0;

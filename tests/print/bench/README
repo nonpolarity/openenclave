@@ -1,0 +1,2 @@
+On enclave side, print is based on the win32 api WriteFile(). Since WriteFile() will not write out the extra CR character as fwrite does, now the behavior of print is unified that the same code will produce exactly the same output.
+On host side, the print result is based on the host side's implementation. The most noticeable difference is the extra "^M" before LF on Windows platform. Thus two benches are provided here corresponding to the respective output.
