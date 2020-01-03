@@ -25,12 +25,12 @@ int main(int argc, const char* argv[])
        isolation of exception in enclave then host process will be terminated.
     */
     const uint32_t flags = oe_get_create_flags();
-    if ((flags & OE_ENCLAVE_FLAG_SIMULATE) != 0)
-    {
-        printf("=== Skipped unsupported test in simulation mode "
-               "(stack_smashing_protector)\n");
-        return SKIP_RETURN_CODE;
-    }
+    //    if ((flags & OE_ENCLAVE_FLAG_SIMULATE) != 0)
+    //    {
+    //        printf("=== Skipped unsupported test in simulation mode "
+    //               "(stack_smashing_protector)\n");
+    //        return SKIP_RETURN_CODE;
+    //    }
 
     oe_enclave_t* enclave = NULL;
     oe_result_t result = oe_create_ssp_enclave(
