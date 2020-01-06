@@ -131,16 +131,7 @@ static oe_result_t _enter_sim(
     binding->host_gs = oe_get_gs_register_base();
     binding->host_fs = oe_get_fs_register_base();
 
-    /* Change GS and FS registers to the values for the enclave thread. At this
-     * point thread-locals, pthread, libc etc won't work within the host thread
-     * since they depend on FS register.
-     * This means that when the enclave makes an ocall, the GS and FS registers
-     * must be immediately restored upon entry to host.
-     * See __oe_dispatch_ocall.
-     */
     td = (td_t*)(enclave->addr + tcs->fsbase);
-    oe_set_fs_register_base(td);
-    oe_set_gs_register_base((void*)(enclave->addr + tcs->gsbase));
 
     /* Set td_t.simulate flag */
     td->simulate = true;
@@ -153,12 +144,6 @@ static oe_result_t _enter_sim(
         *arg4 = 0;
 
     oe_enter_sim(tcs, aep, arg1, arg2, arg3, arg4, enclave);
-
-    /* Restore GS and GS registers. After this, host side library calls can be
-     * safely called.
-     */
-    oe_set_fs_register_base(binding->host_fs);
-    oe_set_gs_register_base(binding->host_gs);
 
     result = OE_OK;
 
@@ -513,13 +498,6 @@ int __oe_dispatch_ocall(
                     break;
                 }
             }
-
-            /**
-             * Restore FS and GS registers when making an OCALL.
-             * This makes sure that thread-locals, libc on host work.
-             */
-            oe_set_fs_register_base(binding->host_fs);
-            oe_set_gs_register_base(binding->host_gs);
         }
         else
         {
@@ -533,14 +511,6 @@ int __oe_dispatch_ocall(
 
         // Restore the binding.
         _set_thread_binding(binding);
-
-        if (enclave->simulate)
-        {
-            // Prior to returning back to the enclave, set the GS and FS
-            // registers to their values for the enclave thread.
-            oe_set_fs_register_base((void*)(enclave->addr + tcs->fsbase));
-            oe_set_gs_register_base((void*)(enclave->addr + tcs->gsbase));
-        }
         return 0;
     }
 

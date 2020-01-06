@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include <openenclave/internal/calls.h>
+#include <openenclave/internal/registers.h>
 #include <openenclave/internal/sgxtypes.h>
 #include "asmdefs.h"
 #include "enclave.h"
@@ -168,6 +169,10 @@ void oe_enter_sim(
     OE_ALIGNED(16)
     uint64_t fx_state[64];
 
+    uint64_t host_fs;
+    uint64_t host_gs;
+    sgx_tcs_t* sgx_tcs = (sgx_tcs_t*)tcs;
+
     while (1)
     {
         // Define register bindings and initialize the registers.
@@ -178,6 +183,15 @@ void oe_enter_sim(
         OE_DEFINE_REGISTER(rdi, arg1);
         OE_DEFINE_REGISTER(rsi, arg2);
         OE_DEFINE_FRAME_POINTER(rbp, OE_FRAME_POINTER_VALUE);
+
+        // Backup host GS and GS registers.
+        host_fs = (uint64_t)oe_get_fs_register_base();
+        host_gs = (uint64_t)oe_get_gs_register_base();
+
+        // Simulate the EENTER instruction by setting up GS and FS registers to
+        // expected values within the enclave.
+        oe_set_fs_register_base((uint8_t*)enclave->addr + sgx_tcs->fsbase);
+        oe_set_gs_register_base((uint8_t*)enclave->addr + sgx_tcs->gsbase);
 
         asm volatile("fxsave %[fx_state] \n\t"    // Save floating point state
                      "pushfq \n\t"                // Save flags
@@ -190,6 +204,9 @@ void oe_enter_sim(
                      : OE_ENCLU_REGISTERS
                      : [fx_state] "m"(fx_state)OE_FRAME_POINTER
                      : OE_ENCLU_CLOBBERED_REGISTERS);
+        // Restore host GS and FS register values.
+        oe_set_fs_register_base((void*)host_fs);
+        oe_set_gs_register_base((void*)host_gs);
 
         // Update arg1 and arg2 with outputs returned by the enclave.
         arg1 = rdi;
