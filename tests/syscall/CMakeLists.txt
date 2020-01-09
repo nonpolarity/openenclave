@@ -2,13 +2,15 @@
 # Licensed under the MIT License.
 
 add_subdirectory(socket)
+add_subdirectory(cpio)
+add_subdirectory(fs)
 
 if(UNIX)
-add_subdirectory(cpio)
+#add_subdirectory(cpio)
 add_subdirectory(datagram)
 add_subdirectory(dup)
 add_subdirectory(epoll)
-add_subdirectory(fs)
+#add_subdirectory(fs)
 add_subdirectory(hostfs)
 add_subdirectory(ids)
 add_subdirectory(poller)
