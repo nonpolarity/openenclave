@@ -552,14 +552,20 @@ extern "C" void test_dup_case2(const char* tmp_dir)
 
 void test_fs(const char* src_dir, const char* tmp_dir)
 {
+    printf("=== starting test\n");
     (void)src_dir;
 
-    OE_TEST(oe_load_module_host_file_system() == OE_OK);
+    oe_result_t r;
+    r = oe_load_module_host_file_system();
+    OE_TEST(r == OE_OK);
 #if defined(TEST_SGXFS)
-    OE_TEST(oe_load_module_sgx_file_system() == OE_OK);
+    r = oe_load_module_sgx_file_system();
+    OE_TEST(r == OE_OK);
 #endif
 
-    OE_TEST(oe_mkdir_d(OE_DEVID_HOST_FILE_SYSTEM, tmp_dir, 0777) == 0);
+    int ret;
+    ret = oe_mkdir_d(OE_DEVID_HOST_FILE_SYSTEM, tmp_dir, 0777);
+    OE_TEST(ret == 0);
 
     printf("=== running all tests\n");
     printf("--- src_dir=%s\n", src_dir);
