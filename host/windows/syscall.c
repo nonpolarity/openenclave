@@ -799,7 +799,10 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
     if ((count & UINT_MAX) != count)
         _set_errno(OE_EINVAL);
 
-    return _read((int)fd, buf, (unsigned int)count);
+    int len = -1;
+    ReadFile((HANDLE)fd, buf, count, &len, NULL);
+    return len;
+//    return _read((int)fd, buf, (unsigned int)count);
 }
 
 ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
@@ -807,7 +810,10 @@ ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
     if ((count & UINT_MAX) != count)
         _set_errno(OE_EINVAL);
 
-    return _write((int)fd, buf, (unsigned int)count);
+//    return _write((int)fd, buf, (unsigned int)count);
+    int len = -1;
+    WriteFile((HANDLE)fd, buf, count, &len, NULL);
+    return len;
 }
 
 ssize_t oe_syscall_readv_ocall(
@@ -915,7 +921,8 @@ done:
 
 int oe_syscall_close_ocall(oe_host_fd_t fd)
 {
-    return _close((int)fd);
+//    return _close((int)fd);
+    return !CloseHandle((HANDLE)fd);
 }
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t);
