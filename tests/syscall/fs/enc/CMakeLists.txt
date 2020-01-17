@@ -22,5 +22,21 @@ else()
     set(OESGXFSENCLAVE "")
 endif()
 
+target_compile_options(fs_enc PRIVATE
+    -Wno-error
+    -Wno-unknown-pragmas
+    -Wno-unused-function
+    -Wno-return-type
+    -Wno-unused-variable
+    -Wno-missing-braces
+    -Wno-unused-parameter
+    -Wno-float-conversion
+    -Wno-sign-conversion
+    -Wno-sign-compare
+    -Wno-conversion
+    -Wno-parentheses
+    -Wno-unused-value
+    -Wno-overflow)
+
 target_link_libraries(fs_enc
     ${OESGXFSENCLAVE} oelibcxx oecpio oeenclave oehostfs)
