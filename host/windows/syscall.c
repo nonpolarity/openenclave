@@ -922,7 +922,7 @@ done:
 int oe_syscall_close_ocall(oe_host_fd_t fd)
 {
 //    return _close((int)fd);
-    return CloseHandle((HANDLE)fd);
+    return !CloseHandle((HANDLE)fd);
 }
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t);
