@@ -31,8 +31,14 @@ endif ()
 
 if (WIN32)
   # On Windows, DESTDIR is not supported by cmake for the install function. Must use a relative path for -DCMAKE_INSTALL_PREFIX:PATH
-  # Here INSTALL_DIR must be signed to ${CMAKE_INSTALL_PREFIX} in case ${PREFIX_DIR} is not defined.
-  set(INSTALL_DIR ${CMAKE_INSTALL_PREFIX})
+  # As a new cmake process started, there is no ${CMAKE_INSTALL_PREFIX} but only ${PREFIX_DIR} to a Absolute address or relative address.
+  if (${PREFIX_DIR} MATCHES ^[a-zA-Z]:)
+    #Absolute address
+    set(INSTALL_DIR ${PREFIX_DIR})
+  else ()
+    #Relative address
+    set(INSTALL_DIR ${BUILD_DIR}/${PREFIX_DIR})
+  endif()
   execute_process(COMMAND ${CMAKE_COMMAND} --build ${BUILD_DIR} --target install)
 else ()
   # The prefix is appended to the value given to DESTDIR, e.g. build/install/opt/openenclave/...
