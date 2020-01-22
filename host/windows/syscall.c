@@ -926,37 +926,62 @@ int oe_syscall_close_ocall(oe_host_fd_t fd)
 }
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t);
+static bool _is_socket(oe_host_fd_t);
 
 oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
 {
-    oe_host_fd_t ret = -1;
 
-    // Only support duping std file descriptors and sockets for now.
+    oe_host_fd_t ret = -1;
+    //suppose oldfd is 
+    oe_host_fd_t oldhandle = oldfd;
+
+    // If oldfd is a stdin/out/err, convert it to the corresponding HANDLE.
     switch (oldfd)
     {
         case 0:
-            ret = _dup(OE_STDIN_FILENO);
+            oldhandle = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
             break;
 
         case 1:
-            ret = _dup(OE_STDOUT_FILENO);
+            oldhandle = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
             break;
 
         case 2:
-            ret = _dup(OE_STDERR_FILENO);
+            oldhandle = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
             break;
 
         default:
-            // Try dup-ing it as a socket.
-            ret = _dup_socket(oldfd);
             break;
     }
 
-    if (ret == -1)
-        _set_errno(OE_EINVAL);
-    else
+    //Now try to dup it as a handle first.
+    if (DuplicateHandle(
+            GetCurrentProcess(),
+            (HANDLE)oldhandle,
+            GetCurrentProcess(),
+            (HANDLE*)&ret,
+            0,
+            FALSE,
+            DUPLICATE_SAME_ACCESS))
+    {
         _set_errno(0);
+        goto done;
+    }
+    
+    ret = GetLastError();
+    _set_errno(_winerr_to_errno(ret));
 
+    //if olfd is not a HANDLE, then try to dup it as a socket.
+    if (ret == ERROR_INVALID_HANDLE)
+    {
+        ret = _dup_socket(oldfd);
+        if (ret == -1)
+            _set_errno(OE_EINVAL);
+        else
+            _set_errno(0);
+    }
+
+done: 
     return ret;
 }
 
@@ -1393,6 +1418,18 @@ static oe_host_fd_t _dup_socket(oe_host_fd_t oldfd)
     }
 
     return -1;
+}
+
+static bool _is_socket(oe_host_fd_t oldfd)
+{
+    if (!oldfd || oldfd >= 0 && oldfd <= 2) 
+    {
+        return false;
+    }
+
+    SOCKET sock;
+
+    return ((sock = _get_socket(oldfd)) != INVALID_SOCKET);
 }
 
 static int _wsa_startup()
