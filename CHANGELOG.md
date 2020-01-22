@@ -10,6 +10,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [Unreleased]
 ------------
 
+### Added
+
+- Support for backtracing in debug and release builds.
+    - Implementations for GNU functions `backtrace` and `backtrace_symbols` (defined in execinfo.h)
+    - Enclaves are built using `-fno-omit-frame-pointer` for accurate backtraces.
+
 ### Changed
 
 - Open Enclave SDK is now officially an incubation project as part of the Linux
@@ -18,9 +24,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
       of Origin](https://developercertificate.org). For details, see
       [Contributing to Open Enclave](docs/Contributing.md).
     - The copyright for all sources is now attributed to Open Enclave SDK contributors.
-- Update Intel DCAP library dependencies to 1.3.1.
-- Update Intel PSW dependencies to 2.5.101.3 on Windows.
+- Update Intel DCAP library dependencies to 1.4.1.
+- Update Intel PSW dependencies to 2.6.100.2 on Windows.
 - The stack guard for OE SDK on SGX is turned on. It is also turned on for enclaves.
+
+### Security
+- Update mbedTLS to version 2.16.4. Refer to [2.16.3](
+https://tls.mbed.org/tech-updates/releases/mbedtls-2.16.3-and-2.7.12-released) and
+[2.16.4](https://tls.mbed.org/tech-updates/releases/mbedtls-2.16.4-and-2.7.13-released)
+release notes for the set of issues addressed.
 
 [v0.7.0] - 2019-10-26
 ---------------------
