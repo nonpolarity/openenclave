@@ -1759,6 +1759,11 @@ int oe_syscall_fcntl_ocall(
     uint64_t argsize,
     void* argout)
 {
+    if (fd < 0)
+    {
+        return -1;
+    }
+    
     SOCKET sock;
 
     if ((sock = _get_socket(fd)) != INVALID_SOCKET)
