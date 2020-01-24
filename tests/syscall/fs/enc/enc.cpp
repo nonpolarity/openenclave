@@ -576,69 +576,69 @@ void test_fs(const char* src_dir, const char* tmp_dir)
         oe_host_printf("=== testing oe-fd-hostfs:\n");
 
         oe_fd_hostfs_file_system fs;
-//        test_all(fs, tmp_dir);
+        test_all(fs, tmp_dir);
 
         oe_host_printf("=== oe-fd-hostfs is done.\n");
     }
 
-//#if defined(TEST_SGXFS)
-//    /* Test the SGXFS oe file descriptor interfaces. */
-//    {
-//        oe_host_printf("=== testing oe-fd-sgxfs:\n");
-//
-//        oe_fd_sgxfs_file_system fs;
-//        test_all(fs, tmp_dir);
-//
-//        oe_host_printf("=== oe-fd-sgxfs is done.\n");
-//    }
-//#endif
-//
-//    /* Test the HOSTFS standard C descriptor interfaces. */
-//    {
-//        oe_host_printf("=== testing fd-hostfs:\n");
-//
-//        fd_hostfs_file_system fs;
-//        test_all(fs, tmp_dir);
-//    }
-//
-//#if defined(TEST_SGXFS)
-//    /* Test the SGXFS standard C descriptor interfaces. */
-//    {
-//        oe_host_printf("=== testing fd-sgxfs:\n");
-//
-//        fd_sgxfs_file_system fs;
-//        test_all(fs, tmp_dir);
-//    }
-//#endif
-//
-//    /* Test stream I/O hostfs functions. */
-//    {
-//        oe_host_printf("=== testing stream I/O hostfs functions:\n");
-//
-//        stream_hostfs_file_system fs;
-//        test_all(fs, tmp_dir);
-//    }
-//
-//#if defined(TEST_SGXFS)
-//    /* Test stream I/O sgxfs functions. */
-//    {
-//        oe_host_printf("=== testing stream I/O sgxfs functions:\n");
-//
-//        stream_sgxfs_file_system fs;
-//        test_all(fs, tmp_dir);
-//    }
-//#endif
-//
-//    /* Test oe_set_thread_devid() */
-//    {
-//        oe_host_printf("=== testing oe_set_thread_devid:\n");
-//
-//        fd_file_system fs;
-//        device_registrant reg(OE_DEVID_HOST_FILE_SYSTEM);
-//        test_all(fs, tmp_dir);
-//    }
-//
-//    /* Test writing to a read-only mounted file system. */
+#if defined(TEST_SGXFS)
+    /* Test the SGXFS oe file descriptor interfaces. */
+    {
+        oe_host_printf("=== testing oe-fd-sgxfs:\n");
+
+        oe_fd_sgxfs_file_system fs;
+        test_all(fs, tmp_dir);
+
+        oe_host_printf("=== oe-fd-sgxfs is done.\n");
+    }
+#endif
+
+    /* Test the HOSTFS standard C descriptor interfaces. */
+    {
+        oe_host_printf("=== testing fd-hostfs:\n");
+
+        fd_hostfs_file_system fs;
+        test_all(fs, tmp_dir);
+    }
+
+#if defined(TEST_SGXFS)
+    /* Test the SGXFS standard C descriptor interfaces. */
+    {
+        oe_host_printf("=== testing fd-sgxfs:\n");
+
+        fd_sgxfs_file_system fs;
+        test_all(fs, tmp_dir);
+    }
+#endif
+
+    /* Test stream I/O hostfs functions. */
+    {
+        oe_host_printf("=== testing stream I/O hostfs functions:\n");
+
+        stream_hostfs_file_system fs;
+        test_all(fs, tmp_dir);
+    }
+
+#if defined(TEST_SGXFS)
+    /* Test stream I/O sgxfs functions. */
+    {
+        oe_host_printf("=== testing stream I/O sgxfs functions:\n");
+
+        stream_sgxfs_file_system fs;
+        test_all(fs, tmp_dir);
+    }
+#endif
+
+    /* Test oe_set_thread_devid() */
+    {
+        oe_host_printf("=== testing oe_set_thread_devid:\n");
+
+        fd_file_system fs;
+        device_registrant reg(OE_DEVID_HOST_FILE_SYSTEM);
+        test_all(fs, tmp_dir);
+    }
+
+    /* Test writing to a read-only mounted file system. */
     {
         char path[OE_PATH_MAX];
         mkpath(path, tmp_dir, "somefile");
