@@ -15,18 +15,18 @@ int enclave_test_print()
     {
         oe_host_printf("oe_host_printf(stdout)\n");
 
-        printf("printf(stdout)\n");
+        printf("printf(stdout)\r\n");
 
-        n = fwrite("fwrite(stdout)\n", 1, 15, stdout);
-        OE_TEST(n == 15);
+        n = fwrite("fwrite(stdout)\r\n", 1, 16, stdout);
+        OE_TEST(n == 16);
         int r = fputc('o', stdout);
         OE_TEST(r == 'o');
         /* Note that gcc seems to optimize fputs to fwrite, and fprintf to
            fputc, iff we ignore the result. */
-        fprintf(stdout, "\n");
+        fprintf(stdout, "\r\n");
         r = fputs("", stdout);
         OE_TEST(r == 0);
-        r = fputs("fputs(stdout)\n", stdout);
+        r = fputs("fputs(stdout)\r\n", stdout);
         OE_TEST(r >= 0);
 
         const char str[] = "oe_host_write(stdout)\n";
@@ -36,14 +36,14 @@ int enclave_test_print()
 
     /* Write to standard error */
     {
-        n = fwrite("fwrite(stderr)\n", 1, 15, stderr);
-        OE_TEST(n == 15);
+        n = fwrite("fwrite(stderr)\r\n", 1, 16, stderr);
+        OE_TEST(n == 16);
         int r = fputc('e', stderr);
         OE_TEST(r == 'e');
         /* Note that gcc seems to optimize fputs to fwrite, and fprintf to
            fputc, iff we ignore the result. */
-        fprintf(stderr, "\n");
-        r = fputs("fputs(stderr)\n", stderr);
+        fprintf(stderr, "\r\n");
+        r = fputs("fputs(stderr)\r\n", stderr);
         OE_TEST(r >= 0);
         const char str[] = "oe_host_write(stderr)\n";
         oe_host_write(1, str, (size_t)-1);
