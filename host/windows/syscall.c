@@ -630,7 +630,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = _dup(OE_STDIN_FILENO);
+        ret = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
         goto done;
     }
     else if (strcmp(pathname, "/dev/stdout") == 0)
@@ -641,7 +641,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = _dup(OE_STDOUT_FILENO);
+        ret = (oe_host_fd_t)GetStdHandle(OE_STDOUT_FILENO);
         goto done;
     }
     else if (strcmp(pathname, "/dev/stderr") == 0)
@@ -652,7 +652,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = _dup(OE_STDERR_FILENO);
+        ret = (oe_host_fd_t)GetStdHandle(OE_STDERR_FILENO);
         goto done;
     }
     else
