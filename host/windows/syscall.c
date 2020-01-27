@@ -618,8 +618,6 @@ oe_host_fd_t oe_syscall_open_ocall(
     int flags,
     oe_mode_t mode)
 {
-    OE_UNUSED(mode);
-
     oe_host_fd_t ret = -1;
 
     if (strcmp(pathname, "/dev/stdin") == 0)
