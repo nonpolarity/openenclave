@@ -639,7 +639,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t)GetStdHandle(OE_STDOUT_FILENO);
+        ret = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
         goto done;
     }
     else if (strcmp(pathname, "/dev/stderr") == 0)
@@ -650,7 +650,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t)GetStdHandle(OE_STDERR_FILENO);
+        ret = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
         goto done;
     }
     else
@@ -711,7 +711,7 @@ oe_host_fd_t oe_syscall_open_ocall(
                 break;
             }
         }
-        
+
         // in linux land, we can always share files for read and write unless
         // they have been opened exclusive
         share_mode = FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE;
@@ -785,7 +785,6 @@ oe_host_fd_t oe_syscall_open_ocall(
             free(wpathname);
         }
     }
-        
 
 done:
 
@@ -964,8 +963,7 @@ oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
     ret = (oe_off_t)new_offset.QuadPart;
 
 done:
-    return ret;    
-
+    return ret;
 }
 
 int oe_syscall_close_ocall(oe_host_fd_t fd)
@@ -997,13 +995,11 @@ int oe_syscall_close_ocall(oe_host_fd_t fd)
 }
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t);
-static bool _is_socket(oe_host_fd_t);
 
 oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
 {
-
     oe_host_fd_t ret = -1;
-    //suppose oldfd is 
+    // suppose oldfd is
     oe_host_fd_t oldhandle = oldfd;
 
     // If oldfd is a stdin/out/err, convert it to the corresponding HANDLE.
@@ -1025,7 +1021,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
             break;
     }
 
-    //Now try to dup it as a handle first.
+    // Now try to dup it as a handle first.
     if (DuplicateHandle(
             GetCurrentProcess(),
             (HANDLE)oldhandle,
@@ -1038,11 +1034,11 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
         _set_errno(0);
         goto done;
     }
-    
+
     ret = GetLastError();
     _set_errno(_winerr_to_errno(ret));
 
-    //if olfd is not a HANDLE, then try to dup it as a socket.
+    // if olfd is not a HANDLE, then try to dup it as a socket.
     if (ret == ERROR_INVALID_HANDLE)
     {
         ret = _dup_socket(oldfd);
@@ -1052,7 +1048,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
             _set_errno(0);
     }
 
-done: 
+done:
     return ret;
 }
 
@@ -1491,18 +1487,6 @@ static oe_host_fd_t _dup_socket(oe_host_fd_t oldfd)
     return -1;
 }
 
-static bool _is_socket(oe_host_fd_t oldfd)
-{
-    if (!oldfd || oldfd >= 0 && oldfd <= 2) 
-    {
-        return false;
-    }
-
-    SOCKET sock;
-
-    return ((sock = _get_socket(oldfd)) != INVALID_SOCKET);
-}
-
 static int _wsa_startup()
 {
     static int64_t wsa_init_done = FALSE;
@@ -1834,7 +1818,7 @@ int oe_syscall_fcntl_ocall(
     {
         return -1;
     }
-    
+
     SOCKET sock;
 
     if ((sock = _get_socket(fd)) != INVALID_SOCKET)
