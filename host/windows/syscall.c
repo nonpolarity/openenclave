@@ -794,24 +794,75 @@ done:
 
 ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
 {
-    if ((count & UINT_MAX) != count)
-        _set_errno(OE_EINVAL);
+    ssize_t ret = -1;
+    DWORD bytes_returned = 0;
 
-    int len = -1;
-    ReadFile((HANDLE)fd, buf, count, &len, NULL);
-    return len;
-//    return _read((int)fd, buf, (unsigned int)count);
+    // Convert fd 0, 1, 2 as needed
+    switch (fd)
+    {
+        case 0:
+            fd = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
+            break;
+
+        case 1:
+            _set_errno(OE_EBADF);
+            goto done;
+
+        case 2:
+            _set_errno(OE_EBADF);
+            goto done;
+
+        default:
+            break;
+    }
+
+    if (!ReadFile((HANDLE)fd, buf, (DWORD)count, &bytes_returned, NULL))
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
+    ret = (ssize_t)bytes_returned;
+
+done:
+    return ret;
 }
 
 ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
 {
-    if ((count & UINT_MAX) != count)
-        _set_errno(OE_EINVAL);
+    ssize_t ret = -1;
+    DWORD bytes_written = 0;
 
-//    return _write((int)fd, buf, (unsigned int)count);
-    int len = -1;
-    WriteFile((HANDLE)fd, buf, count, &len, NULL);
-    return len;
+    // Convert fd 0, 1, 2 as needed
+    switch (fd)
+    {
+        case 0:
+            // Error. You cant write to stdin
+            _set_errno(OE_EBADF);
+            goto done;
+
+        case 1:
+            fd = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
+            break;
+
+        case 2:
+            fd = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
+            break;
+
+        default:
+            break;
+    }
+
+    if (!WriteFile((HANDLE)fd, buf, (DWORD)count, &bytes_written, NULL))
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
+    ret = (ssize_t)bytes_written;
+
+done:
+    return ret;
 }
 
 ssize_t oe_syscall_readv_ocall(
@@ -919,8 +970,30 @@ done:
 
 int oe_syscall_close_ocall(oe_host_fd_t fd)
 {
-//    return _close((int)fd);
-    return !CloseHandle((HANDLE)fd);
+    // Convert fd 0, 1, 2 as needed
+    switch (fd)
+    {
+        case 0:
+            fd = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
+            break;
+
+        case 1:
+            fd = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
+            break;
+
+        case 2:
+            fd = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
+            break;
+
+        default:
+            break;
+    }
+    if (!CloseHandle((HANDLE)fd))
+    {
+        _set_errno(OE_EINVAL);
+        return -1;
+    }
+    return 0;
 }
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t);
