@@ -1148,7 +1148,7 @@ int oe_syscall_close_ocall(oe_host_fd_t fd)
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
-    
+
     ret = !CloseHandle(handle);
     if (ret)
     {
