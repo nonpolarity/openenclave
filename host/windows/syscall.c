@@ -687,7 +687,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             goto done;
         }
 
-        memcpy_s(wpath, current_dir, current_dir_len * sizeof(WCHAR));
+        memcpy_s(wpath, required_size, current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
         if(!MultiByteToWideChar(
             CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen))
