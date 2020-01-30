@@ -796,11 +796,13 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
     ssize_t ret = -1;
     DWORD bytes_returned = 0;
 
+    HANDLE handle = (HANDLE)fd;
+
     // Convert fd 0, 1, 2 as needed
     switch (fd)
     {
         case 0:
-            fd = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
+            handle = GetStdHandle(STD_INPUT_HANDLE);
             break;
 
         case 1:
@@ -815,7 +817,7 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
             break;
     }
 
-    if (!ReadFile((HANDLE)fd, buf, (DWORD)count, &bytes_returned, NULL))
+    if (!ReadFile(handle, buf, (DWORD)count, &bytes_returned, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -832,6 +834,8 @@ ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
     ssize_t ret = -1;
     DWORD bytes_written = 0;
 
+    HANDLE handle = (HANDLE)fd;
+
     // Convert fd 0, 1, 2 as needed
     switch (fd)
     {
@@ -841,18 +845,18 @@ ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
             goto done;
 
         case 1:
-            fd = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
+            handle = GetStdHandle(STD_OUTPUT_HANDLE);
             break;
 
         case 2:
-            fd = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
+            handle = GetStdHandle(STD_ERROR_HANDLE);
             break;
 
         default:
             break;
     }
 
-    if (!WriteFile((HANDLE)fd, buf, (DWORD)count, &bytes_written, NULL))
+    if (!WriteFile(handle, buf, (DWORD)count, &bytes_written, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -968,25 +972,27 @@ done:
 
 int oe_syscall_close_ocall(oe_host_fd_t fd)
 {
+    HANDLE handle = (HANDLE)fd;
+
     // Convert fd 0, 1, 2 as needed
     switch (fd)
     {
         case 0:
-            fd = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
+            handle = GetStdHandle(STD_INPUT_HANDLE);
             break;
 
         case 1:
-            fd = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
+            handle = GetStdHandle(STD_OUTPUT_HANDLE);
             break;
 
         case 2:
-            fd = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
+            handle = GetStdHandle(STD_ERROR_HANDLE);
             break;
 
         default:
             break;
     }
-    if (!CloseHandle((HANDLE)fd))
+    if (!CloseHandle(handle))
     {
         _set_errno(OE_EINVAL);
         return -1;
@@ -996,25 +1002,25 @@ int oe_syscall_close_ocall(oe_host_fd_t fd)
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t);
 
-oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
+oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
 {
     oe_host_fd_t ret = -1;
-    // suppose oldfd is
-    oe_host_fd_t oldhandle = oldfd;
+    // suppose fd is a handle.
+    HANDLE oldhandle = (HANDLE)fd;
 
-    // If oldfd is a stdin/out/err, convert it to the corresponding HANDLE.
-    switch (oldfd)
+    // If fd is a stdin/out/err, convert it to the corresponding HANDLE.
+    switch (fd)
     {
         case 0:
-            oldhandle = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
+            oldhandle = GetStdHandle(STD_INPUT_HANDLE);
             break;
 
         case 1:
-            oldhandle = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
+            oldhandle = GetStdHandle(STD_OUTPUT_HANDLE);
             break;
 
         case 2:
-            oldhandle = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
+            oldhandle = GetStdHandle(STD_ERROR_HANDLE);
             break;
 
         default:
@@ -1024,7 +1030,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
     // Now try to dup it as a handle first.
     if (DuplicateHandle(
             GetCurrentProcess(),
-            (HANDLE)oldhandle,
+            oldhandle,
             GetCurrentProcess(),
             (HANDLE*)&ret,
             0,
@@ -1041,7 +1047,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t oldfd)
     // if olfd is not a HANDLE, then try to dup it as a socket.
     if (ret == ERROR_INVALID_HANDLE)
     {
-        ret = _dup_socket(oldfd);
+        ret = _dup_socket(fd);
         if (ret == -1)
             _set_errno(OE_EINVAL);
         else
