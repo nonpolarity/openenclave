@@ -347,8 +347,7 @@ __declspec(noreturn) static void _panic(
 //
 // The string  must be freed
 //
-// we don't handle paths which start with the "\\?\" thing. Since we convert
-// everything to wchar, we have normal paths up to 32767 chars long. We never
+// we don't handle paths which start with the "\\?\" thing. We never
 // use the 8 bit version of the win32 apis. That said, we get paths in 8 bit
 // characters from the enclave because there is no "wopen" in linux
 //
@@ -361,114 +360,89 @@ char* oe_win_path_to_posix(const char* path)
     char* current_dir = NULL;
     char* enclave_path = NULL;
 
-    if (!path)
+    if (!path || strlen(path) == 0)
     {
-        return NULL;
+        _set_errno(OE_EINVAL);
+        goto done;
     }
-    // Relative or incomplete path?
+
+    if (strcmp(path, "nul") == 0)
+    {
+        enclave_path = calloc(1, sizeof(char) * 10);
+        sprintf(enclave_path, "%s", "/dev/null");
+        enclave_path[9] = '\0';
+
+        goto done;
+    }
 
     // absolute path with drive letter.
     // we do not handle device type paths ("CON:) or double-letter paths in case
     // of really large numbers of disks (>26). If you have those, mount on
     // windows
     //
-    if (isalpha(path[0]) && path[1] == ':')
+
+    int origin_len =  strlen(path);
+    if (origin_len >= 2 && isalpha(path[0]) && path[1] == ':')
     {
-        // Abosolute path is drive letter
-        required_size = strlen(path) + 1;
-    }
-    else if (path[0] == '/' || path[0] == '\\')
-    {
-        required_size = strlen(path) + 3; // Add a drive letter to the path
+        // Abosolute path, just replace c: to /c
+        required_size = origin_len + 1;
+
+        enclave_path = (char*)calloc(1, required_size);
+        memcpy(enclave_path, path, origin_len);
     }
     else
     {
-        current_dir = _getcwd(NULL, 32767);
+        // Relative path, ./tmp or /tmp.
+        // /tmp means D:\tmp if pwd is under D:\.
+        //  \tmp is the same case.
+        // Anyway we need pwd.
+        current_dir = _getcwd(NULL, 0);
         current_dir_len = strlen(current_dir);
 
-        if (isalpha(*current_dir) && (current_dir[1] == ':'))
+        if (!(current_dir_len >= 2 && isalpha(*current_dir) && (current_dir[1] == ':')))
         {
-            // This is expected. We convert drive: to /drive.
-
-            char drive_letter = *current_dir;
-            *current_dir = '/';
-            current_dir[1] = drive_letter;
+            //_getcwd result is wrong
+            _set_errno(_winerr_to_errno(ERROR_INVALID_DRIVE));
+            return NULL;
         }
-        // relative path. If the path starts with "." or ".." we accomodate
-        required_size = strlen(path) + current_dir_len + 1;
-    }
 
-    enclave_path = (char*)calloc(1, required_size);
-
-    const char* psrc = path;
-    const char* plimit = path + strlen(path);
-    char* pdst = enclave_path;
-
-    if (isalpha(*psrc) && psrc[1] == ':')
-    {
-        *pdst++ = '/';
-        *pdst++ = *psrc;
-        psrc += 2;
-    }
-    else if (*psrc == '/')
-    {
-        *pdst++ = '/';
-        *pdst++ = _getdrive() + 'a' - 1;
-    }
-    else if (*psrc == '.')
-    {
-        memcpy(pdst, current_dir, current_dir_len);
-        if (psrc[1] == '/' || psrc[1] == '\\')
+        if (path[0] == '\\' || path[0] == '/')
         {
-            pdst += current_dir_len;
-            psrc++;
+            // Only need the drive name.
+            current_dir_len = 2;
         }
-        else if (psrc[1] == '.' && (psrc[2] == '/' || psrc[2] == '\\'))
-        {
-            char* rstr = strrchr(
-                current_dir, '\\'); // getcwd always returns at least '\'
-            pdst += current_dir_len - (rstr - current_dir);
-            // When we shortend the curdir by 1 slash, we perform the ".."
-            // operation we could leave it in here, but at least sometimes this
-            // will allow a path that would otherwise be too long
-            psrc += 2;
-        }
-        else
-        {
-            // It is an incomplete which starts with a file which starts with .
-            // so we dont increment psrc at all
-            pdst += current_dir_len;
-            *pdst = '/';
-        }
-    }
-    else
-    {
-        // Still a relative path
-        memcpy(pdst, current_dir, current_dir_len);
-        pdst += current_dir_len;
-        *pdst++ = '/';
+
+        required_size = current_dir_len + origin_len + 1;
+
+        enclave_path = (char*)calloc(1, required_size);
+
+        memcpy(enclave_path, current_dir, current_dir_len);
+        memcpy(enclave_path + current_dir_len, path, origin_len);
     }
 
-    // Since we have to translater slashes, use a loop rather than memcpy
-    while (psrc < plimit)
+    // Clean up
+    if (enclave_path[1] == ':')
     {
-        if (*psrc == '\\')
-        {
-            *pdst = '/';
-        }
-        else
-        {
-            *pdst = *psrc;
-        }
-        psrc++;
-        pdst++;
+        enclave_path[1] = enclave_path[0];
+        enclave_path[0] = '/';
     }
-    *pdst = '\0';
+
+    enclave_path[required_size - 1] = '\0';
+
+    for (int i = 0; i < required_size; i++)
+    {
+        if (enclave_path[i] == '\\')
+        {
+            enclave_path[i] = '/';
+        }
+    }
 
     if (current_dir)
     {
         free(current_dir);
     }
+
+done:
     return enclave_path;
 }
 
@@ -577,7 +551,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
     else
     {
         // Relative path
-        WCHAR* current_dir = _wgetcwd(NULL, 32767);
+        WCHAR* current_dir = _wgetcwd(NULL, 0);
         if (!current_dir)
         {
             _set_errno(OE_ENOMEM);
