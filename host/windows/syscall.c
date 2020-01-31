@@ -13,6 +13,18 @@
 */
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
+#define CHECKZERO(exe)                                                         \
+    do                                                                         \
+    {                                                                          \
+        int retval = (exe);                                                    \
+        if (retval == 0)                                                       \
+        {                                                                      \
+            fprintf(stderr, "Runtime error: %x \nAt %s:%d",                    \
+                GetLastError(), __FILE__, __LINE__);                           \
+            return NULL;                                                       \
+        }                                                                      \
+    } while (0)
+
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>
@@ -472,23 +484,47 @@ char* oe_win_path_to_posix(const char* path)
 // The string  must be freed
 WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 {
+    WCHAR* wpath = NULL;
+
+    if (!path)
+    {
+        _set_errno(ERROR_BAD_PATHNAME);
+        goto done;
+    }
+
+    if (strcmp(path, "/dev/null") == 0)
+    {
+        //just return "nul". On windows nul is the equivolent of /dev/null.
+        wpath = (WCHAR*)(calloc(4 * sizeof(WCHAR), 1));
+        if (!wpath)
+        {
+            _set_errno(ERROR_OUTOFMEMORY);
+        }
+        wpath[0] = 'n';
+        wpath[1] = 'u';
+        wpath[2] = 'l';
+        wpath[3] = 0;
+
+        goto done;
+    }
+
     size_t required_size = 0;
     size_t current_dir_len = 0;
     char* current_dir = NULL;
     int pathlen = -1;
     size_t postlen = 0;
 
-    if (!path)
-    {
-        return NULL;
-    }
-
-    if (strcmp(path, "/dev/null") == 0)
-    {
-        path = "NUL:";
-    }
-
     pathlen = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
+    // 0 is the error return.
+    if (pathlen == 0)
+    {
+        fprintf(
+            stderr,
+            "oe_syscall_path_to_win string conversion failed winerr=%x\n",
+            GetLastError());
+        goto done;
+    }
+
     if (post)
     {
         postlen = MultiByteToWideChar(CP_UTF8, 0, post, -1, NULL, 0);
@@ -499,23 +535,22 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 stderr,
                 "oe_syscall_path_to_win string conversion failed winerr=%x\n",
                 GetLastError());
-            return NULL;
+            goto done;
         }
     }
 
-    WCHAR* wpath = NULL;
-
     if (path[0] == '/')
     {
-        if (isalpha(path[1]) && path[2] == '/')
+        if (pathlen >= 2 && isalpha(path[1]) && path[2] == '/')
         {
             wpath =
                 (WCHAR*)(calloc((pathlen + postlen + 1) * sizeof(WCHAR), 1));
-            MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, (int)pathlen);
+            CHECKZERO(MultiByteToWideChar(
+                CP_UTF8, 0, path, -1, wpath, (int)pathlen));
             if (postlen)
             {
-                MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen);
+                CHECKZERO(MultiByteToWideChar(
+                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen));
             }
             WCHAR drive_letter = wpath[1];
             wpath[0] = drive_letter;
@@ -526,11 +561,12 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             // Absolute path needs drive letter
             wpath =
                 (WCHAR*)(calloc((pathlen + postlen + 3) * sizeof(WCHAR), 1));
-            MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen);
+            CHECKZERO(MultiByteToWideChar(
+                CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen));
             if (postlen)
             {
-                MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen);
+                CHECKZERO(MultiByteToWideChar(
+                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen));
             }
             WCHAR drive_letter =
                 _getdrive() + 'a' - 1; // getdrive returns 1 for A:
@@ -551,23 +587,19 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
         wpath = (WCHAR*)(calloc(
             (pathlen + current_dir_len + postlen + 1) * sizeof(WCHAR), 1));
-        memcpy(wpath, current_dir, current_dir_len);
-        wpath[current_dir_len++] = '/';
-        MultiByteToWideChar(
-            CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen);
+        memcpy(wpath, current_dir, current_dir_len * sizeof(WCHAR));
+        wpath[current_dir_len++] = '\\';
+        CHECKZERO(MultiByteToWideChar(
+            CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen));
         if (postlen)
         {
-            MultiByteToWideChar(
-                CP_UTF8,
-                0,
-                path,
-                -1,
-                wpath + current_dir_len + pathlen - 1,
-                (int)postlen);
+            CHECKZERO(MultiByteToWideChar(CP_UTF8, 0, path, -1,
+                wpath + current_dir_len + pathlen - 1, (int)postlen));
         }
 
         free(current_dir);
     }
+done:
     return wpath;
 }
 
@@ -660,11 +692,6 @@ oe_host_fd_t oe_syscall_open_ocall(
         DWORD create_dispos = OPEN_EXISTING;
         DWORD file_flags = (FILE_ATTRIBUTE_NORMAL | FILE_FLAG_POSIX_SEMANTICS);
         WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
-
-        if (strcmp(pathname, "/dev/null") == 0)
-        {
-            pathname = "nul";
-        }
 
         if ((flags & OE_O_DIRECTORY) != 0)
         {
