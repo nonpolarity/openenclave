@@ -21,6 +21,7 @@
         {                                                                      \
             fprintf(stderr, "Runtime error: %x \nAt %s:%d",                    \
                 GetLastError(), __FILE__, __LINE__);                           \
+            _set_errno(_winerr_to_errno(GetLastError()));                      \
             return NULL;                                                       \
         }                                                                      \
     } while (0)
@@ -361,7 +362,7 @@ char* oe_win_path_to_posix(const char* path)
     char* current_dir = NULL;
     char* enclave_path = NULL;
 
-    if (!path || strlen(path) == 0)
+    if (!path || strlen_s(path) == 0)
     {
         _set_errno(OE_EINVAL);
         goto done;
@@ -382,14 +383,14 @@ char* oe_win_path_to_posix(const char* path)
     // windows
     //
 
-    int origin_len =  strlen(path);
+    int origin_len =  strlen_s(path);
     if (origin_len >= 2 && isalpha(path[0]) && path[1] == ':')
     {
         // Abosolute path, just replace c: to /c
         required_size = origin_len + 1;
 
         enclave_path = (char*)calloc(1, required_size);
-        memcpy(enclave_path, path, origin_len);
+        memcpy_s(enclave_path, required_size, path, origin_len);
     }
     else
     {
@@ -398,7 +399,7 @@ char* oe_win_path_to_posix(const char* path)
         //  \tmp is the same case.
         // Anyway we need pwd.
         current_dir = _getcwd(NULL, 32767);
-        current_dir_len = strlen(current_dir);
+        current_dir_len = strlen_s(current_dir);
 
         if (!(current_dir_len >= 2 && isalpha(*current_dir) && (current_dir[1] == ':')))
         {
@@ -417,8 +418,8 @@ char* oe_win_path_to_posix(const char* path)
 
         enclave_path = (char*)calloc(1, required_size);
 
-        memcpy(enclave_path, current_dir, current_dir_len);
-        memcpy(enclave_path + current_dir_len, path, origin_len);
+        memcpy_s(enclave_path, required_size, current_dir, current_dir_len);
+        memcpy_s(enclave_path + current_dir_len, required_size - current_dir_len, path, origin_len);
     }
 
     // Clean up
@@ -491,12 +492,13 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
     pathlen = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
     // 0 is the error return.
-    if (pathlen == 0)
+    if (pathlen <= 0)
     {
         fprintf(
             stderr,
             "oe_syscall_path_to_win string conversion failed winerr=%x\n",
             GetLastError());
+        _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
@@ -504,12 +506,13 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
     {
         postlen = MultiByteToWideChar(CP_UTF8, 0, post, -1, NULL, 0);
         // 0 is the error return.
-        if (postlen == 0)
+        if (postlen <= 0)
         {
             fprintf(
                 stderr,
                 "oe_syscall_path_to_win string conversion failed winerr=%x\n",
                 GetLastError());
+            _set_errno(_winerr_to_errno(GetLastError()));
             goto done;
         }
     }
@@ -562,7 +565,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
         wpath = (WCHAR*)(calloc(
             (pathlen + current_dir_len + postlen + 1) * sizeof(WCHAR), 1));
-        memcpy(wpath, current_dir, current_dir_len * sizeof(WCHAR));
+        memcpy_s(wpath, current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
         CHECKZERO(MultiByteToWideChar(
             CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen));
@@ -1172,7 +1175,7 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
     }
 
     FindClose(pdir->hFind);
-    memset(&pdir->FindFileData, 0, sizeof(pdir->FindFileData));
+    memset_s(&pdir->FindFileData, 0, sizeof(pdir->FindFileData));
 
     pdir->hFind = FindFirstFileW(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
