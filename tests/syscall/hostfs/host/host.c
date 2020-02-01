@@ -37,6 +37,10 @@ int main(int argc, const char* argv[])
     OE_TEST(r == OE_OK);
 
     printf("=== passed all tests (test_hostfs)\n");
+#if defined(_WIN32)
+    free((char*)tmp_dir);
+#endif
+
 
     return 0;
 }

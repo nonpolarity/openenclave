@@ -392,18 +392,19 @@ char* oe_win_path_to_posix(const char* path)
     }
     else
     {
-        // Relative path, ./tmp or /tmp.
-        // /tmp means D:\tmp if pwd is under D:\.
-        //  \tmp is the same case.
-        // Anyway we need pwd.
+        // Relative path
+        // suppose cwd is C:\Users\test:
+        // case 1: path starts with '.':
+        // .\dir\file, the output should be /C/Users/test/./dir/file
+        // case 2: \dir\file, the output should be /C/dir/file
         current_dir = _getcwd(NULL, 0);
         current_dir_len = strlen(current_dir);
 
-        if (!(current_dir_len >= 2 && isalpha(*current_dir) && (current_dir[1] == ':')))
+        if (current_dir_len < 2 || !isalpha(current_dir[0]) || current_dir[1] != ':')
         {
             //_getcwd result is wrong
-            _set_errno(_winerr_to_errno(ERROR_INVALID_DRIVE));
-            return NULL;
+            _set_errno(OE_ENOMEM);
+            goto done;
         }
 
         if (path[0] == '\\' || path[0] == '/')
@@ -421,14 +422,21 @@ char* oe_win_path_to_posix(const char* path)
     }
 
     // Clean up
-    if (enclave_path[1] == ':')
+
+    // There are at least 2 chars are copied to enclave_path as disk:
+    // Check the length here and replace disk: at the first 2 position as /disk.
+    if (required_size >= 3 && isalpha(enclave_path[0]) && enclave_path[1] == ':')
     {
         enclave_path[1] = enclave_path[0];
         enclave_path[0] = '/';
     }
+    else
+    {
+        _set_errno(ERROR_BAD_PATHNAME);
+        goto done;
+    }
 
-    enclave_path[required_size - 1] = '\0';
-
+    // replace all '\\' with '/'
     for (int i = 0; i < required_size; i++)
     {
         if (enclave_path[i] == '\\')
@@ -437,12 +445,13 @@ char* oe_win_path_to_posix(const char* path)
         }
     }
 
+    enclave_path[required_size - 1] = '\0';
+
+done:
     if (current_dir)
     {
         free(current_dir);
     }
-
-done:
     return enclave_path;
 }
 
@@ -460,24 +469,26 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 {
     WCHAR* wpath = NULL;
 
-    if (!path)
+    if (!path || strlen(path) == 0)
     {
         _set_errno(ERROR_BAD_PATHNAME);
-        goto done;
+        return NULL;
     }
 
     if (strcmp(path, "/dev/null") == 0)
     {
-        //just return "nul". On windows nul is the equivolent of /dev/null.
+        // Just return "nul". On windows nul is the equivolent of /dev/null
+        // on Linux.
         wpath = (WCHAR*)(calloc(4 * sizeof(WCHAR), 1));
         if (!wpath)
         {
             _set_errno(ERROR_OUTOFMEMORY);
+            return NULL;
         }
         wpath[0] = 'n';
         wpath[1] = 'u';
         wpath[2] = 'l';
-        wpath[3] = 0;
+        wpath[3] = '\0';
 
         goto done;
     }
@@ -489,32 +500,33 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
     size_t postlen = 0;
 
     pathlen = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
-    // 0 is the error return.
-    if (pathlen == 0)
+    // positive length is expected return.
+    if (pathlen <= 0)
     {
         fprintf(
             stderr,
             "oe_syscall_path_to_win string conversion failed winerr=%x\n",
             GetLastError());
-        goto done;
+        return NULL;
     }
 
     if (post)
     {
         postlen = MultiByteToWideChar(CP_UTF8, 0, post, -1, NULL, 0);
-        // 0 is the error return.
-        if (postlen == 0)
+        // positive length is expected return.
+        if (postlen <= 0)
         {
             fprintf(
                 stderr,
                 "oe_syscall_path_to_win string conversion failed winerr=%x\n",
                 GetLastError());
-            goto done;
+            return NULL;
         }
     }
 
     if (path[0] == '/')
     {
+        // /c/
         if (pathlen >= 2 && isalpha(path[1]) && path[2] == '/')
         {
             wpath =
