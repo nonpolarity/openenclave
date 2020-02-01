@@ -432,7 +432,7 @@ char* oe_win_path_to_posix(const char* path)
     char* current_dir = NULL;
     char* enclave_path = NULL;
 
-    if (!path || strlen(path) == 0)
+    if (!path || strlen_s(path) == 0)
     {
         _set_errno(OE_EINVAL);
         goto done;
@@ -453,7 +453,7 @@ char* oe_win_path_to_posix(const char* path)
     // windows
     //
 
-    int origin_len =  strlen(path);
+    int origin_len =  strlen_s(path);
     if (origin_len >= 2 && isalpha(path[0]) && path[1] == ':')
     {
         // Abosolute path, just replace c: to /c
@@ -465,17 +465,16 @@ char* oe_win_path_to_posix(const char* path)
             _set_errno(OE_ENOMEM);
             goto done;
         }
-        memcpy(enclave_path, path, origin_len);
+        memcpy_s(enclave_path, required_size, path, origin_len);
     }
     else
     {
-        // Relative path
-        // suppose cwd is C:\Users\test:
-        // case 1: path starts with '.':
-        // .\dir\file, the output should be /C/Users/test/./dir/file
-        // case 2: \dir\file, the output should be /C/dir/file
-        current_dir = _getcwd(NULL, 0);
-        current_dir_len = strlen(current_dir);
+        // Relative path, ./tmp or /tmp.
+        // /tmp means D:\tmp if pwd is under D:\.
+        //  \tmp is the same case.
+        // Anyway we need pwd.
+        current_dir = _getcwd(NULL, 32767);
+        current_dir_len = strlen_s(current_dir);
 
         if (current_dir_len < 2 || !isalpha(current_dir[0]) || current_dir[1] != ':')
         {
@@ -498,9 +497,9 @@ char* oe_win_path_to_posix(const char* path)
             _set_errno(OE_ENOMEM);
             goto done;
         }
- 
-        memcpy(enclave_path, current_dir, current_dir_len);
-        memcpy(enclave_path + current_dir_len, path, origin_len);
+
+        memcpy_s(enclave_path, required_size, current_dir, current_dir_len);
+        memcpy_s(enclave_path + current_dir_len, required_size - current_dir_len, path, origin_len);
     }
 
     // Clean up
@@ -688,7 +687,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             goto done;
         }
 
-        memcpy(wpath, current_dir, current_dir_len * sizeof(WCHAR));
+        memcpy_s(wpath, required_size, current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
         if(!MultiByteToWideChar(
             CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen))
@@ -1149,7 +1148,7 @@ int oe_syscall_close_ocall(oe_host_fd_t fd)
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
-    
+
     ret = !CloseHandle(handle);
     if (ret)
     {
@@ -1355,7 +1354,7 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
         goto done;
     }
 
-    memset(&pdir->FindFileData, 0, sizeof(pdir->FindFileData));
+    memset_s(&pdir->FindFileData, 0, sizeof(pdir->FindFileData));
 
     pdir->hFind = FindFirstFileW(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
