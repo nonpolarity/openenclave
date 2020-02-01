@@ -41,6 +41,5 @@ int main(int argc, const char* argv[])
     free((char*)tmp_dir);
 #endif
 
-
     return 0;
 }
