@@ -19,8 +19,8 @@
         int retval = (exe);                                                    \
         if (retval == 0)                                                       \
         {                                                                      \
-            fprintf(stderr, "Runtime error: %x \nAt %s:%d",                    \
-                GetLastError(), __FILE__, __LINE__);                           \
+            _set_errno(_winerr_to_errno(GetLastError()));                      \
+            free(wpath);                                                       \
             return NULL;                                                       \
         }                                                                      \
     } while (0)
@@ -468,11 +468,12 @@ done:
 WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 {
     WCHAR* wpath = NULL;
+    char* current_dir = NULL;
 
     if (!path || strlen(path) == 0)
     {
         _set_errno(ERROR_BAD_PATHNAME);
-        return NULL;
+        goto done;
     }
 
     if (strcmp(path, "/dev/null") == 0)
@@ -483,7 +484,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         if (!wpath)
         {
             _set_errno(ERROR_OUTOFMEMORY);
-            return NULL;
+            goto done;
         }
         wpath[0] = 'n';
         wpath[1] = 'u';
@@ -495,7 +496,6 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
     size_t required_size = 0;
     size_t current_dir_len = 0;
-    char* current_dir = NULL;
     int pathlen = -1;
     size_t postlen = 0;
 
@@ -503,11 +503,8 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
     // positive length is expected return.
     if (pathlen <= 0)
     {
-        fprintf(
-            stderr,
-            "oe_syscall_path_to_win string conversion failed winerr=%x\n",
-            GetLastError());
-        return NULL;
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
     }
 
     if (post)
@@ -516,21 +513,20 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         // positive length is expected return.
         if (postlen <= 0)
         {
-            fprintf(
-                stderr,
-                "oe_syscall_path_to_win string conversion failed winerr=%x\n",
-                GetLastError());
-            return NULL;
+            _set_errno(_winerr_to_errno(GetLastError()));
+            goto done;
         }
     }
 
     if (path[0] == '/')
     {
-        // /c/
-        if (pathlen >= 2 && isalpha(path[1]) && path[2] == '/')
+        // /c/dir/file
+        if ((pathlen >=3 && path[0] == '/' && isalpha(path[1]) && path[2] == '/') ||
+                // /c only
+                (pathlen == 2 && path[0] =='/' && isalpha(path[1]) && path[2] == '\0'))
         {
-            wpath =
-                (WCHAR*)(calloc((pathlen + postlen + 1) * sizeof(WCHAR), 1));
+            required_size = pathlen + postlen + 1;
+            wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
             CHECKZERO(MultiByteToWideChar(
                 CP_UTF8, 0, path, -1, wpath, (int)pathlen));
             if (postlen)
@@ -538,15 +534,15 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 CHECKZERO(MultiByteToWideChar(
                     CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen));
             }
-            WCHAR drive_letter = wpath[1];
-            wpath[0] = drive_letter;
+
+            wpath[0] = wpath[1];
             wpath[1] = ':';
         }
         else
         {
             // Absolute path needs drive letter
-            wpath =
-                (WCHAR*)(calloc((pathlen + postlen + 3) * sizeof(WCHAR), 1));
+            required_size = pathlen + postlen + 3;
+            wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
             CHECKZERO(MultiByteToWideChar(
                 CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen));
             if (postlen)
@@ -554,9 +550,16 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 CHECKZERO(MultiByteToWideChar(
                     CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen));
             }
-            WCHAR drive_letter =
-                _getdrive() + 'a' - 1; // getdrive returns 1 for A:
-            wpath[0] = drive_letter;
+
+            // getdrive returns 1 for A:
+            int drive = _getdrive();
+            if (drive <= 0)
+            {
+                _set_errno(_winerr_to_errno(GetLastError()));
+                goto done;
+            }
+
+            wpath[0] = drive + 'a' - 1;
             wpath[1] = ':';
         }
     }
@@ -567,12 +570,12 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         if (!current_dir)
         {
             _set_errno(OE_ENOMEM);
-            return NULL;
+            goto done;
         }
         size_t current_dir_len = wcslen(current_dir);
 
-        wpath = (WCHAR*)(calloc(
-            (pathlen + current_dir_len + postlen + 1) * sizeof(WCHAR), 1));
+        required_size = pathlen + current_dir_len + postlen + 1;
+        wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
         memcpy(wpath, current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
         CHECKZERO(MultiByteToWideChar(
@@ -582,10 +585,21 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             CHECKZERO(MultiByteToWideChar(CP_UTF8, 0, path, -1,
                 wpath + current_dir_len + pathlen - 1, (int)postlen));
         }
+    }
 
+    for (int i = 0; i < required_size; i++)
+    {
+        if (wpath[i] == '/')
+        {
+            wpath[i] = '\\';
+        }
+    }
+
+done:
+    if (current_dir)
+    {
         free(current_dir);
     }
-done:
     return wpath;
 }
 
