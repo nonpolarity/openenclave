@@ -353,6 +353,90 @@ __declspec(noreturn) static void _panic(
 //
 // We always convert in the ocall function.
 //
+void normalize_path(char *path, size_t origlen, char slash)
+{
+    if (!path)
+    {
+        _set_errno(OE_EINVAL);
+        return;
+    }
+
+    for (char *c = path; *c != '\0'; c++)
+    {
+        if (*c == '\\' || *c == '/')
+        {
+            *c = slash;
+        }
+    }
+
+    // Corner case, or base case.
+    // ".", "./" should return with "."
+    if ((origlen >= 2 && path[0] == '.' && path[1] == '\0') ||
+        (origlen >= 3 && path[0] == '.' && path[1] == slash && path[2] == '/0'))
+    {
+        path[1] = '\0';
+        return;
+    }
+
+    char *p; /* points to the beginning of the path not yet processed; this is
+                either a path component or a path separator character */
+    char *q; /* points to the end of the path component p points to */
+    char *w; /* points to the end of the already normalized path; w <= p is
+                maintained */
+    size_t len; /* length of current component (which p points to) */
+
+    p = path;
+    w = p;
+    while (*p != '\0') {
+        if (*p == slash) {
+            if ((w == path && *path == slash) || (w > path && w[-1] != slash))
+                *w++ = slash;
+            p++;
+            continue;
+        }
+
+        q = strchr(p, slash);
+        if (q == NULL)
+            q = p + strlen(p);
+        len = q - p;
+        if (len < 0)
+        {
+            _set_errno(OE_EINVAL);
+        }
+
+        if (len == 1 && *p == '.') {
+            /* remove current component */
+        } else if (len == 2 && memcmp(p, "..", 2) == 0) {
+            if (w == path || (w == path+3 && memcmp(path, "../", 3) == 0)) {
+                /* keep ".." at beginning of relative path ("../x" => "../x") */
+                memmove(w, p, len);
+                w += len;
+            } else if (w == path+1 && *path == slash) {
+                /* remove ".." at beginning of absolute path ("/../x" => "/x") */
+            } else {
+                /* remove both current component ".." and preceding one */
+                if (w > path && w[-1] == slash)
+                    w--;
+                while (w > path && w[-1] != slash)
+                    w--;
+            }
+        } else {
+            /* normal component ==> add it */
+            memmove(w, p, len);
+            w += len;
+        }
+
+        p = q;
+    }
+
+    /* remove trailing slashes, but keep the one at the start of the path */
+    while (w > path+1 && w[-1] == slash) {
+        w--;
+    }
+
+    *w = '\0';
+}
+
 char* oe_win_path_to_posix(const char* path)
 {
     size_t required_size = 0;
@@ -436,16 +520,8 @@ char* oe_win_path_to_posix(const char* path)
         goto done;
     }
 
-    // replace all '\\' with '/'
-    for (int i = 0; i < required_size; i++)
-    {
-        if (enclave_path[i] == '\\')
-        {
-            enclave_path[i] = '/';
-        }
-    }
-
     enclave_path[required_size - 1] = '\0';
+    normalize_path(enclave_path, required_size, '/');
 
 done:
     if (current_dir)
@@ -594,6 +670,8 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             wpath[i] = '\\';
         }
     }
+
+    wpath[required_size - 1] = '\0';
 
 done:
     if (current_dir)
