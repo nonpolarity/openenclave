@@ -472,6 +472,11 @@ char* oe_win_path_to_posix(const char* path)
         required_size = origin_len + 1;
 
         enclave_path = (char*)calloc(1, required_size);
+        if (!enclave_path)
+        {
+            _set_errno(OE_ENOMEM);
+            goto done;
+        }
         memcpy(enclave_path, path, origin_len);
     }
     else
@@ -487,7 +492,7 @@ char* oe_win_path_to_posix(const char* path)
         if (current_dir_len < 2 || !isalpha(current_dir[0]) || current_dir[1] != ':')
         {
             //_getcwd result is wrong
-            _set_errno(OE_ENOMEM);
+            _set_errno(OE_EINVAL);
             goto done;
         }
 
@@ -500,7 +505,12 @@ char* oe_win_path_to_posix(const char* path)
         required_size = current_dir_len + origin_len + 1;
 
         enclave_path = (char*)calloc(1, required_size);
-
+        if (!enclave_path)
+        {
+            _set_errno(OE_ENOMEM);
+            goto done;
+        }
+ 
         memcpy(enclave_path, current_dir, current_dir_len);
         memcpy(enclave_path + current_dir_len, path, origin_len);
     }
@@ -516,7 +526,7 @@ char* oe_win_path_to_posix(const char* path)
     }
     else
     {
-        _set_errno(ERROR_BAD_PATHNAME);
+        _set_errno(OE_EINVAL);
         goto done;
     }
 
@@ -548,7 +558,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
     if (!path || strlen(path) == 0)
     {
-        _set_errno(ERROR_BAD_PATHNAME);
+        _set_errno(OE_EINVAL);
         goto done;
     }
 
@@ -559,7 +569,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         wpath = (WCHAR*)(calloc(4 * sizeof(WCHAR), 1));
         if (!wpath)
         {
-            _set_errno(ERROR_OUTOFMEMORY);
+            _set_errno(OE_ENOMEM);
             goto done;
         }
         wpath[0] = 'n';
@@ -603,6 +613,12 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         {
             required_size = pathlen + postlen + 1;
             wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
+            if (!wpath)
+            {
+                _set_errno(OE_ENOMEM);
+                goto done;
+            }
+
             CHECKZERO(MultiByteToWideChar(
                 CP_UTF8, 0, path, -1, wpath, (int)pathlen));
             if (postlen)
@@ -619,6 +635,12 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             // Absolute path needs drive letter
             required_size = pathlen + postlen + 3;
             wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
+            if (!wpath)
+            {
+                _set_errno(OE_ENOMEM);
+                goto done;
+            }
+
             CHECKZERO(MultiByteToWideChar(
                 CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen));
             if (postlen)
@@ -652,6 +674,12 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
         required_size = pathlen + current_dir_len + postlen + 1;
         wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
+        if (!wpath)
+        {
+            _set_errno(OE_ENOMEM);
+            goto done;
+        }
+
         memcpy(wpath, current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
         CHECKZERO(MultiByteToWideChar(
@@ -729,6 +757,7 @@ oe_host_fd_t oe_syscall_open_ocall(
     oe_mode_t mode)
 {
     oe_host_fd_t ret = -1;
+    WCHAR* wpathname = NULL;
 
     if (strcmp(pathname, "/dev/stdin") == 0)
     {
@@ -769,7 +798,7 @@ oe_host_fd_t oe_syscall_open_ocall(
         DWORD share_mode = 0;
         DWORD create_dispos = OPEN_EXISTING;
         DWORD file_flags = (FILE_ATTRIBUTE_NORMAL | FILE_FLAG_POSIX_SEMANTICS);
-        WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
+        wpathname = oe_syscall_path_to_win(pathname, NULL);
 
         if ((flags & OE_O_DIRECTORY) != 0)
         {
@@ -881,18 +910,17 @@ oe_host_fd_t oe_syscall_open_ocall(
             int retx = _wchmod(wpathname, wmode);
             if (retx < 0)
             {
-                fprintf(stderr, "chmod failed, err = %d\n", GetLastError());
+                _set_errno(_winerr_to_errno(GetLastError()));
+                goto done;
             }
-        }
-
-        if (wpathname)
-        {
-            free(wpathname);
         }
     }
 
 done:
-
+    if (wpathname)
+    {
+        free(wpathname);
+    }
     return ret;
 }
 
