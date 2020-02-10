@@ -1165,7 +1165,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
     }
 
     // Now try to dup it as a handle first.
-    if (DuplicateHandle(
+    if (oldhandle >= 0 && DuplicateHandle(
             GetCurrentProcess(),
             oldhandle,
             GetCurrentProcess(),
