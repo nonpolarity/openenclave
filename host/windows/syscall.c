@@ -939,9 +939,6 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
             break;
 
         case 1:
-            _set_errno(OE_EBADF);
-            goto done;
-
         case 2:
             _set_errno(OE_EBADF);
             goto done;
@@ -1125,11 +1122,18 @@ int oe_syscall_close_ocall(oe_host_fd_t fd)
         default:
             break;
     }
+
+    if (handle < 0)
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        return -1;
+    }
     if (!CloseHandle(handle))
     {
         _set_errno(OE_EINVAL);
         return -1;
     }
+
     return 0;
 }
 
