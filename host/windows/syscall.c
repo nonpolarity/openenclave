@@ -13,18 +13,6 @@
 */
 #define _WINSOCK_DEPRECATED_NO_WARNINGS
 
-#define CHECKZERO(exe)                                                         \
-    do                                                                         \
-    {                                                                          \
-        int retval = (exe);                                                    \
-        if (retval == 0)                                                       \
-        {                                                                      \
-            _set_errno(_winerr_to_errno(GetLastError()));                      \
-            free(wpath);                                                       \
-            return NULL;                                                       \
-        }                                                                      \
-    } while (0)
-
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>
@@ -619,12 +607,22 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 goto done;
             }
 
-            CHECKZERO(MultiByteToWideChar(
-                CP_UTF8, 0, path, -1, wpath, (int)pathlen));
+            if(!MultiByteToWideChar(
+                CP_UTF8, 0, path, -1, wpath, (int)pathlen))
+            {
+                _set_errno(_winerr_to_errno(GetLastError()));
+                free(wpath);
+                goto done;
+            }
             if (postlen)
             {
-                CHECKZERO(MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen));
+                if (!MultiByteToWideChar(
+                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen))
+                {
+                    _set_errno(_winerr_to_errno(GetLastError()));
+                    free(wpath);
+                    goto done;
+                }
             }
 
             wpath[0] = wpath[1];
@@ -641,12 +639,22 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 goto done;
             }
 
-            CHECKZERO(MultiByteToWideChar(
-                CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen));
+            if(!MultiByteToWideChar(
+                CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen))
+            {
+                _set_errno(_winerr_to_errno(GetLastError()));
+                free(wpath);
+                goto done;
+            }
             if (postlen)
             {
-                CHECKZERO(MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen));
+                if(!MultiByteToWideChar(
+                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen))
+                {
+                    _set_errno(_winerr_to_errno(GetLastError()));
+                    free(wpath);
+                    goto done;
+                }
             }
 
             // getdrive returns 1 for A:
@@ -682,12 +690,24 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
         memcpy(wpath, current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
-        CHECKZERO(MultiByteToWideChar(
-            CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen));
+        if(!MultiByteToWideChar(
+            CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen))
+        {
+            _set_errno(_winerr_to_errno(GetLastError()));
+            free(wpath);
+            wpath = NULL;
+            goto done;
+        }
         if (postlen)
         {
-            CHECKZERO(MultiByteToWideChar(CP_UTF8, 0, path, -1,
-                wpath + current_dir_len + pathlen - 1, (int)postlen));
+            if(!MultiByteToWideChar(CP_UTF8, 0, path, -1,
+                wpath + current_dir_len + pathlen - 1, (int)postlen))
+            {
+                _set_errno(_winerr_to_errno(GetLastError()));
+                free(wpath);
+                wpath = NULL;
+                goto done;
+            }
         }
     }
 
