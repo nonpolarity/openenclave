@@ -1178,18 +1178,14 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
         goto done;
     }
 
-    ret = GetLastError();
-    _set_errno(_winerr_to_errno(ret));
+    _set_errno(_winerr_to_errno(GetLastError()));
 
-    // if olfd is not a HANDLE, then try to dup it as a socket.
-    if (ret == ERROR_INVALID_HANDLE)
-    {
-        ret = _dup_socket(fd);
-        if (ret == -1)
-            _set_errno(OE_EINVAL);
-        else
-            _set_errno(0);
-    }
+    // if fd is not a HANDLE, then try to dup it as a socket.
+    ret = _dup_socket(fd);
+    if (ret == -1)
+        _set_errno(OE_EINVAL);
+    else
+        _set_errno(0);
 
 done:
     return ret;
