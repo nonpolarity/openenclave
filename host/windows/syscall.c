@@ -1374,20 +1374,26 @@ done:
 
 int oe_syscall_closedir_ocall(uint64_t dirp)
 {
+    int ret = -1;
     struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
 
     if (!dirp)
     {
-        return -1;
+        goto done;
     }
     if (!FindClose(pdir->hFind))
     {
-        return -1;
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
     }
+
     free(pdir->pdirpath);
     pdir->pdirpath = NULL;
     free(pdir);
-    return 0;
+    ret = 0;
+
+done:
+    return ret;
 }
 
 int oe_syscall_stat_ocall(const char* pathname, struct oe_stat* buf)
