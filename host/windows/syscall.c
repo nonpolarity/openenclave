@@ -1230,13 +1230,6 @@ uint64_t oe_syscall_opendir_ocall(const char* pathname)
     }
 
     WCHAR* wpathname = oe_syscall_path_to_win(pathname, "/*");
-    if (!wpathname)
-    {
-        free(pdir);
-        pdir = NULL;
-        goto done;
-    }
-
     pdir->hFind = FindFirstFileW(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
     {
@@ -1461,10 +1454,10 @@ done:
 int oe_syscall_link_ocall(const char* oldpath, const char* newpath)
 {
     int ret = -1;
-    WCHAR* woldpath = oe_syscall_path_to_win(oldpath, NULL);
-    WCHAR* wnewpath = oe_syscall_path_to_win(newpath, NULL);
+    WCHAR* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
+    WCHAR* newwpath = oe_syscall_path_to_win(newpath, NULL);
 
-    if (!CreateHardLinkW(wnewpath, woldpath, NULL))
+    if (!CreateHardLinkW(newwpath, oldwpath, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1472,14 +1465,14 @@ int oe_syscall_link_ocall(const char* oldpath, const char* newpath)
     ret = 0;
 
 done:
-    if (woldpath)
+    if (oldwpath)
     {
-        free(woldpath);
+        free(oldwpath);
     }
 
-    if (wnewpath)
+    if (newwpath)
     {
-        free(wnewpath);
+        free(newwpath);
     }
     return ret;
 }
@@ -1507,10 +1500,10 @@ done:
 int oe_syscall_rename_ocall(const char* oldpath, const char* newpath)
 {
     int ret = -1;
-    WCHAR* woldpath = oe_syscall_path_to_win(oldpath, NULL);
-    WCHAR* wnewpath = oe_syscall_path_to_win(newpath, NULL);
+    WCHAR* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
+    WCHAR* newwpath = oe_syscall_path_to_win(newpath, NULL);
 
-    ret = _wrename(woldpath, wnewpath);
+    ret = _wrename(oldwpath, newwpath);
     if (ret < 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
@@ -1518,14 +1511,14 @@ int oe_syscall_rename_ocall(const char* oldpath, const char* newpath)
     }
 
 done:
-    if (woldpath)
+    if (oldwpath)
     {
-        free(woldpath);
+        free(oldwpath);
     }
 
-    if (wnewpath)
+    if (newwpath)
     {
-        free(wnewpath);
+        free(newwpath);
     }
     return ret;
 }
@@ -1565,9 +1558,12 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
         goto done;
     }
 
-    CloseHandle(h);
-
-    ret = 0;
+    ret = CloseHandle(h);
+    if (ret)
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
 
 done:
     if (wpathname)
