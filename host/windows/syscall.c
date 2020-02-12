@@ -1221,24 +1221,42 @@ struct WIN_DIR_DATA
 
 uint64_t oe_syscall_opendir_ocall(const char* pathname)
 {
-    struct WIN_DIR_DATA* pdir =
-        (struct WIN_DIR_DATA*)calloc(1, sizeof(struct WIN_DIR_DATA));
+    struct WIN_DIR_DATA* pdir = NULL;
+
+    pdir = (struct WIN_DIR_DATA*)calloc(1, sizeof(struct WIN_DIR_DATA));
+    if (!pdir)
+    {
+        goto done;
+    }
+
     WCHAR* wpathname = oe_syscall_path_to_win(pathname, "/*");
+    if (!wpathname)
+    {
+        free(pdir);
+        pdir = NULL;
+        goto done;
+    }
 
     pdir->hFind = FindFirstFileW(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
     {
         free(wpathname);
         free(pdir);
-        return 0;
+        pdir = NULL;
+        goto done;
     }
+
     pdir->dir_offs = 0;
     pdir->pdirpath = wpathname;
+
+done:
     return (uint64_t)pdir;
 }
 
 int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
 {
+    int ret = -1;
+
     struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
     int nlen = -1;
 
@@ -1247,7 +1265,8 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
     if (!dirp || !entry)
     {
         _set_errno(OE_EINVAL);
-        return -1;
+        ret = -1;
+        goto done;
     }
 
     // Find file next doesn't return '.' because it shows up in opendir and we
@@ -1259,7 +1278,8 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         entry->d_reclen = sizeof(struct oe_dirent);
         entry->d_name[0] = '.';
         entry->d_name[1] = '\0';
-        return 0;
+        ret = 0;
+        goto done;
     }
 
     if (!FindNextFileW(pdir->hFind, &pdir->FindFileData))
@@ -1269,13 +1289,14 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         if (winerr == ERROR_NO_MORE_FILES)
         {
             /* Return 1 to indicate there no more entries. */
-            return 1;
+            ret = 1;
         }
         else
         {
             _set_errno(_winerr_to_errno(winerr));
-            return -1;
+            ret = -1;
         }
+        goto done;
     }
 
     nlen = WideCharToMultiByte(
@@ -1289,6 +1310,12 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         sizeof(entry->d_name),
         NULL,
         NULL);
+
+    if(nlen == 0)
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
 
     entry->d_type = 0;
     if (pdir->FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
@@ -1307,7 +1334,10 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
     entry->d_off = pdir->dir_offs++;
     entry->d_reclen = sizeof(struct oe_dirent);
 
-    return 0;
+    ret = 0;
+
+done:
+    return ret;
 }
 
 void oe_syscall_rewinddir_ocall(uint64_t dirp)
