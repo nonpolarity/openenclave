@@ -1122,6 +1122,7 @@ done:
 
 int oe_syscall_close_ocall(oe_host_fd_t fd)
 {
+    int ret = -1;
     HANDLE handle = (HANDLE)fd;
 
     // Convert fd 0, 1, 2 as needed
@@ -1146,15 +1147,18 @@ int oe_syscall_close_ocall(oe_host_fd_t fd)
     if (handle < 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
-        return -1;
+        goto done;
     }
-    if (!CloseHandle(handle))
+    
+    ret = !CloseHandle(handle);
+    if (ret)
     {
-        _set_errno(OE_EINVAL);
-        return -1;
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
     }
 
-    return 0;
+done:
+    return ret;
 }
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t);
@@ -1558,7 +1562,7 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
         goto done;
     }
 
-    ret = CloseHandle(h);
+    ret = !CloseHandle(h);
     if (ret)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
