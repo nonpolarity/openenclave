@@ -1347,20 +1347,29 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
     WCHAR* wpathname = pdir->pdirpath;
     // Undo abosolute path forcing again. We do this over because we need to
     // preserve the allocation address for free.
-    if (wpathname[0] == '/' && wpathname[2] == ':')
+    if (wcslen(wpathname) >= 3 && wpathname[0] == '/' && wpathname[2] == ':')
     {
         wpathname++;
     }
 
-    FindClose(pdir->hFind);
+    if(!FindClose(pdir->hFind))
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
     memset(&pdir->FindFileData, 0, sizeof(pdir->FindFileData));
 
     pdir->hFind = FindFirstFileW(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
     {
-        err = GetLastError();
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
     }
     pdir->dir_offs = 0;
+
+done:
+    return;
 }
 
 int oe_syscall_closedir_ocall(uint64_t dirp)
