@@ -434,7 +434,7 @@ char* oe_win_path_to_posix(const char* path)
     char* current_dir = NULL;
     char* enclave_path = NULL;
 
-    if (!path || strnlen_s(path, MAX_PATH) == 0 || strnlen_s(path, MAX_PATH) != MAX_PATH)
+    if (!path || strnlen_s(path, MAX_PATH) == 0 || strnlen_s(path, MAX_PATH) == MAX_PATH)
     {
         _set_errno(OE_EINVAL);
         goto done;
@@ -442,9 +442,9 @@ char* oe_win_path_to_posix(const char* path)
 
     if (strcmp(path, "nul") == 0)
     {
-        enclave_path = calloc(1, sizeof(char) * 10);
+        enclave_path = calloc(strlen("/dev/null"), sizeof(char));
         sprintf(enclave_path, "%s", "/dev/null");
-        enclave_path[9] = '\0';
+        enclave_path[strlen("/dev/null") - 1] = '\0';
 
         goto done;
     }
@@ -461,13 +461,13 @@ char* oe_win_path_to_posix(const char* path)
         // Abosolute path, just replace c: to /c
         required_size = origin_len + 1;
 
-        enclave_path = (char*)calloc(1, required_size);
+        enclave_path = (char*)calloc(required_size, sizeof(char));
         if (!enclave_path)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
-        oe_memcpy_s(enclave_path, required_size, path, origin_len);
+        oe_memcpy_s(enclave_path, sizeof(char) * required_size, path, origin_len);
     }
     else
     {
@@ -475,7 +475,7 @@ char* oe_win_path_to_posix(const char* path)
         // /tmp means D:\tmp if pwd is under D:\.
         //  \tmp is the same case.
         // Anyway we need pwd.
-        current_dir = _getcwd(NULL, 32767);
+        current_dir = _getcwd(NULL, 0);
         current_dir_len = strnlen_s(current_dir, MAX_PATH);
 
         if (current_dir_len < 2 || !isalpha(current_dir[0]) || current_dir[1] != ':')
@@ -493,15 +493,15 @@ char* oe_win_path_to_posix(const char* path)
 
         required_size = current_dir_len + origin_len + 1;
 
-        enclave_path = (char*)calloc(1, required_size);
+        enclave_path = (char*)calloc(required_size, sizeof(char));
         if (!enclave_path)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
 
-        oe_memcpy_s(enclave_path, required_size, current_dir, current_dir_len);
-        oe_memcpy_s(enclave_path + current_dir_len, required_size - current_dir_len, path, origin_len);
+        oe_memcpy_s(enclave_path, sizeof(char) * required_size, current_dir, sizeof(char) * current_dir_len);
+        oe_memcpy_s(enclave_path + sizeof(char) * current_dir_len, sizeof(char) * (required_size - current_dir_len), path, sizeof(char) * origin_len);
     }
 
     // Clean up
@@ -555,7 +555,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
     {
         // Just return "nul". On windows nul is the equivolent of /dev/null
         // on Linux.
-        wpath = (WCHAR*)(calloc(4 * sizeof(WCHAR), 1));
+        wpath = (WCHAR*)(calloc(strlen("nul"), sizeof(WCHAR)));
         if (!wpath)
         {
             _set_errno(OE_ENOMEM);
@@ -601,7 +601,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 (pathlen == 2 && path[0] =='/' && isalpha(path[1]) && path[2] == '\0'))
         {
             required_size = pathlen + postlen + 1;
-            wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
+            wpath = (WCHAR*)(calloc(required_size, sizeof(WCHAR)));
             if (!wpath)
             {
                 _set_errno(OE_ENOMEM);
@@ -633,7 +633,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         {
             // Absolute path needs drive letter
             required_size = pathlen + postlen + 3;
-            wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
+            wpath = (WCHAR*)(calloc(required_size, sizeof(WCHAR)));
             if (!wpath)
             {
                 _set_errno(OE_ENOMEM);
@@ -682,14 +682,14 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         size_t current_dir_len = wcslen(current_dir);
 
         required_size = pathlen + current_dir_len + postlen + 1;
-        wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
+        wpath = (WCHAR*)(calloc(required_size, sizeof(WCHAR)));
         if (!wpath)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
 
-        oe_memcpy_s(wpath, required_size, current_dir, current_dir_len * sizeof(WCHAR));
+        oe_memcpy_s(wpath, required_size * sizeof(WCHAR), current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
         if(!MultiByteToWideChar(
             CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen))
