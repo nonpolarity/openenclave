@@ -341,7 +341,7 @@ __declspec(noreturn) static void _panic(
 //
 // We always convert in the ocall function.
 //
-void normalize_path(char *path, size_t origlen, char slash)
+void normalize_path(char* path, size_t origlen, char slash)
 {
     if (!path)
     {
@@ -349,7 +349,7 @@ void normalize_path(char *path, size_t origlen, char slash)
         return;
     }
 
-    for (char *c = path; *c != '\0'; c++)
+    for (char* c = path; *c != '\0'; c++)
     {
         if (*c == '\\' || *c == '/')
         {
@@ -366,17 +366,19 @@ void normalize_path(char *path, size_t origlen, char slash)
         return;
     }
 
-    char *p; /* points to the beginning of the path not yet processed; this is
+    char* p; /* points to the beginning of the path not yet processed; this is
                 either a path component or a path separator character */
-    char *q; /* points to the end of the path component p points to */
-    char *w; /* points to the end of the already normalized path; w <= p is
+    char* q; /* points to the end of the path component p points to */
+    char* w; /* points to the end of the already normalized path; w <= p is
                 maintained */
     size_t len; /* length of current component (which p points to) */
 
     p = path;
     w = p;
-    while (*p != '\0') {
-        if (*p == slash) {
+    while (*p != '\0')
+    {
+        if (*p == slash)
+        {
             if ((w == path && *path == slash) || (w > path && w[-1] != slash))
                 *w++ = slash;
             p++;
@@ -392,23 +394,34 @@ void normalize_path(char *path, size_t origlen, char slash)
             _set_errno(OE_EINVAL);
         }
 
-        if (len == 1 && *p == '.') {
+        if (len == 1 && *p == '.')
+        {
             /* remove current component */
-        } else if (len == 2 && memcmp(p, "..", 2) == 0) {
-            if (w == path || (w == path+3 && memcmp(path, "../", 3) == 0)) {
+        }
+        else if (len == 2 && memcmp(p, "..", 2) == 0)
+        {
+            if (w == path || (w == path + 3 && memcmp(path, "../", 3) == 0))
+            {
                 /* keep ".." at beginning of relative path ("../x" => "../x") */
                 memmove(w, p, len);
                 w += len;
-            } else if (w == path+1 && *path == slash) {
-                /* remove ".." at beginning of absolute path ("/../x" => "/x") */
-            } else {
+            }
+            else if (w == path + 1 && *path == slash)
+            {
+                /* remove ".." at beginning of absolute path ("/../x" => "/x")
+                 */
+            }
+            else
+            {
                 /* remove both current component ".." and preceding one */
                 if (w > path && w[-1] == slash)
                     w--;
                 while (w > path && w[-1] != slash)
                     w--;
             }
-        } else {
+        }
+        else
+        {
             /* normal component ==> add it */
             memmove(w, p, len);
             w += len;
@@ -418,7 +431,8 @@ void normalize_path(char *path, size_t origlen, char slash)
     }
 
     /* remove trailing slashes, but keep the one at the start of the path */
-    while (w > path+1 && w[-1] == slash) {
+    while (w > path + 1 && w[-1] == slash)
+    {
         w--;
     }
 
@@ -453,7 +467,7 @@ char* oe_win_path_to_posix(const char* path)
     // windows
     //
 
-    int origin_len =  strlen_s(path);
+    int origin_len = strlen_s(path);
     if (origin_len >= 2 && isalpha(path[0]) && path[1] == ':')
     {
         // Abosolute path, just replace c: to /c
@@ -476,7 +490,8 @@ char* oe_win_path_to_posix(const char* path)
         current_dir = _getcwd(NULL, 32767);
         current_dir_len = strlen_s(current_dir);
 
-        if (current_dir_len < 2 || !isalpha(current_dir[0]) || current_dir[1] != ':')
+        if (current_dir_len < 2 || !isalpha(current_dir[0]) ||
+            current_dir[1] != ':')
         {
             //_getcwd result is wrong
             _set_errno(OE_EINVAL);
@@ -499,14 +514,19 @@ char* oe_win_path_to_posix(const char* path)
         }
 
         memcpy_s(enclave_path, required_size, current_dir, current_dir_len);
-        memcpy_s(enclave_path + current_dir_len, required_size - current_dir_len, path, origin_len);
+        memcpy_s(
+            enclave_path + current_dir_len,
+            required_size - current_dir_len,
+            path,
+            origin_len);
     }
 
     // Clean up
 
     // There are at least 2 chars are copied to enclave_path as disk:
     // Check the length here and replace disk: at the first 2 position as /disk.
-    if (required_size >= 3 && isalpha(enclave_path[0]) && enclave_path[1] == ':')
+    if (required_size >= 3 && isalpha(enclave_path[0]) &&
+        enclave_path[1] == ':')
     {
         enclave_path[1] = enclave_path[0];
         enclave_path[0] = '/';
@@ -530,7 +550,7 @@ done:
 
 // Allocates WCHAR* string which follows the expected rules for
 // enclaves comminication with the host file system API. Paths in the format
-// /<driveletter>/<item>/<item>  become <driveletter>:/<item>/<item>
+// /<driveletter>/<item>/<item>  become <driveletter>:\\<item>\\<item>
 //
 // The resulting string, especially with a relative path, will probably contain
 // mixed slashes. We beleive Windows handles this.
@@ -594,9 +614,11 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
     if (path[0] == '/')
     {
         // /c/dir/file
-        if ((pathlen >=3 && path[0] == '/' && isalpha(path[1]) && path[2] == '/') ||
-                // /c only
-                (pathlen == 2 && path[0] =='/' && isalpha(path[1]) && path[2] == '\0'))
+        if ((pathlen >= 3 && path[0] == '/' && isalpha(path[1]) &&
+             path[2] == '/') ||
+            // /c only
+            (pathlen == 2 && path[0] == '/' && isalpha(path[1]) &&
+             path[2] == '\0'))
         {
             required_size = pathlen + postlen + 1;
             wpath = (WCHAR*)(calloc(required_size * sizeof(WCHAR), 1));
@@ -606,8 +628,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 goto done;
             }
 
-            if(!MultiByteToWideChar(
-                CP_UTF8, 0, path, -1, wpath, (int)pathlen))
+            if (!MultiByteToWideChar(CP_UTF8, 0, path, -1, wpath, (int)pathlen))
             {
                 _set_errno(_winerr_to_errno(GetLastError()));
                 free(wpath);
@@ -616,7 +637,12 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             if (postlen)
             {
                 if (!MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen))
+                        CP_UTF8,
+                        0,
+                        post,
+                        -1,
+                        wpath + pathlen - 1,
+                        (int)postlen))
                 {
                     _set_errno(_winerr_to_errno(GetLastError()));
                     free(wpath);
@@ -638,8 +664,8 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 goto done;
             }
 
-            if(!MultiByteToWideChar(
-                CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen))
+            if (!MultiByteToWideChar(
+                    CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen))
             {
                 _set_errno(_winerr_to_errno(GetLastError()));
                 free(wpath);
@@ -647,8 +673,13 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             }
             if (postlen)
             {
-                if(!MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen))
+                if (!MultiByteToWideChar(
+                        CP_UTF8,
+                        0,
+                        post,
+                        -1,
+                        wpath + pathlen - 1,
+                        (int)postlen))
                 {
                     _set_errno(_winerr_to_errno(GetLastError()));
                     free(wpath);
@@ -687,10 +718,11 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
             goto done;
         }
 
-        memcpy_s(wpath, required_size, current_dir, current_dir_len * sizeof(WCHAR));
+        memcpy_s(
+            wpath, required_size, current_dir, current_dir_len * sizeof(WCHAR));
         wpath[current_dir_len++] = '\\';
-        if(!MultiByteToWideChar(
-            CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen))
+        if (!MultiByteToWideChar(
+                CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen))
         {
             _set_errno(_winerr_to_errno(GetLastError()));
             free(wpath);
@@ -699,8 +731,13 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         }
         if (postlen)
         {
-            if(!MultiByteToWideChar(CP_UTF8, 0, path, -1,
-                wpath + current_dir_len + pathlen - 1, (int)postlen))
+            if (!MultiByteToWideChar(
+                    CP_UTF8,
+                    0,
+                    path,
+                    -1,
+                    wpath + current_dir_len + pathlen - 1,
+                    (int)postlen))
             {
                 _set_errno(_winerr_to_errno(GetLastError()));
                 free(wpath);
@@ -1189,13 +1226,13 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
 
     // Now try to dup it as a handle first.
     if (oldhandle >= 0 && DuplicateHandle(
-            GetCurrentProcess(),
-            oldhandle,
-            GetCurrentProcess(),
-            (HANDLE*)&ret,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS))
+                              GetCurrentProcess(),
+                              oldhandle,
+                              GetCurrentProcess(),
+                              (HANDLE*)&ret,
+                              0,
+                              FALSE,
+                              DUPLICATE_SAME_ACCESS))
     {
         _set_errno(0);
         goto done;
@@ -1307,7 +1344,7 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         NULL,
         NULL);
 
-    if(nlen == 0)
+    if (nlen == 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1348,7 +1385,7 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
         wpathname++;
     }
 
-    if(!FindClose(pdir->hFind))
+    if (!FindClose(pdir->hFind))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1485,8 +1522,8 @@ int oe_syscall_unlink_ocall(const char* pathname)
     int ret = -1;
     WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    ret = _wunlink(wpathname);
-    if (ret < 0)
+    ret = !DeleteFileA(wpathname);
+    if (ret != 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
