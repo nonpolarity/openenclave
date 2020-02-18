@@ -1563,14 +1563,16 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
         goto done;
     }
 
-    ret = !CloseHandle(h);
-    if (ret)
+done:
+    if (h != INVALID_HANDLE_VALUE)
     {
-        _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
+        ret = !CloseHandle(h);
+        if (ret)
+        {
+            _set_errno(_winerr_to_errno(GetLastError()));
+        }
     }
 
-done:
     if (wpathname)
     {
         free(wpathname);
