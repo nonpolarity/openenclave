@@ -741,16 +741,8 @@ oe_result_t oe_create_enclave(
     for (size_t i = 0; i < enclave->num_bindings; i++)
     {
         ThreadBinding* binding = &enclave->bindings[i];
-
-        if (!(binding->event.handle = CreateEvent(
-                  0,     /* No security attributes */
-                  FALSE, /* Event is reset automatically */
-                  FALSE, /* Event is not put in a signaled state
-                            upon creation */
-                  0)))   /* No name */
-        {
-            OE_RAISE_MSG(OE_FAILURE, "CreateEvent failed", NULL);
-        }
+        binding->event.g_TargetValue = (uint32_t)(-1);
+        binding->event.UndesiredValue = (uint32_t)(-1);
     }
 
 #endif
@@ -873,7 +865,8 @@ oe_result_t oe_terminate_enclave(oe_enclave_t* enclave)
         for (size_t i = 0; i < enclave->num_bindings; i++)
         {
             ThreadBinding* binding = &enclave->bindings[i];
-            CloseHandle(binding->event.handle);
+//            CloseHandle(binding->event.handle);
+            binding->event.g_TargetValue = 0;
         }
 
 #endif

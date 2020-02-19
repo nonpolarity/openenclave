@@ -24,7 +24,9 @@ typedef struct _enclave_event
 #if defined(__linux__)
     uint32_t value;
 #elif defined(_WIN32)
-    HANDLE handle;
+    uint32_t g_TargetValue;
+    uint32_t CapturedValue;
+    uint32_t UndesiredValue;
 #endif
 } EnclaveEvent;
 

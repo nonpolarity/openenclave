@@ -62,7 +62,13 @@ void HandleThreadWait(oe_enclave_t* enclave, uint64_t arg_in)
 
 #elif defined(_WIN32)
 
-    WaitForSingleObject(event->handle, INFINITE);
+    event->UndesiredValue = (uint32_t)(-1);
+    event->CapturedValue = event->g_TargetValue;
+    while (event->CapturedValue == event->UndesiredValue)
+    {
+        WaitOnAddress(&(event->g_TargetValue), &(event->UndesiredValue), sizeof(uint32_t), INFINITE);
+        event->CapturedValue = event->g_TargetValue;
+    }
 
 #endif
 }
@@ -81,7 +87,8 @@ void HandleThreadWake(oe_enclave_t* enclave, uint64_t arg_in)
 
 #elif defined(_WIN32)
 
-    SetEvent(event->handle);
+    event->g_TargetValue = 0;
+    WakeByAddressAll(&(event->g_TargetValue));
 
 #endif
 }
