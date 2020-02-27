@@ -164,6 +164,7 @@ if (OE_SGX)
     sgx/registers.c
     sgx/report.c
     sgx/sgxload.c
+#    sgx/sgxload2.c
     sgx/sgxmeasure.c
     sgx/sgxquote.c
     sgx/sgxsign.c
@@ -258,6 +259,13 @@ list(APPEND PLATFORM_SDK_ONLY_SRC
 
 # Combine the following common code along with the platform specific code and
 # host verification code to get the full oehost target provided by the OE SDK.
+add_library(oehost2 STATIC
+  ${PLATFORM_HOST_ONLY_SRC}
+  ${PLATFORM_SDK_ONLY_SRC})
+
+list(APPEND PLATFORM_SDK_ONLY_SRC
+  sgx/sgxload2.c)
+
 add_library(oehost STATIC
   ${PLATFORM_HOST_ONLY_SRC}
   ${PLATFORM_SDK_ONLY_SRC})
@@ -266,14 +274,17 @@ add_library(oehostverify STATIC ${PLATFORM_HOST_ONLY_SRC})
 
 target_link_libraries(oehostverify PUBLIC oe_includes)
 target_link_libraries(oehost PUBLIC oe_includes)
+target_link_libraries(oehost2 PUBLIC oe_includes)
 
 if(WIN32)
   target_link_libraries(oehost PUBLIC ws2_32)
+  target_link_libraries(oehost2 PUBLIC ws2_32)
 endif()
 
 if (OE_SGX AND UNIX)
   # Link oedebugrt static library.
   target_link_libraries(oehost PRIVATE oedebugrt)
+  target_link_libraries(oehost2 PRIVATE oedebugrt)
 
   # hoststackbridge and enter.c must be forced to retain the frame-pointer
   # for ocall stack-stitching by using the -fno-omit-frame-pointer flag.
@@ -284,12 +295,20 @@ if (OE_SGX AND UNIX)
     sgx/linux/hoststackbridge.c
     PROPERTIES
     COMPILE_FLAGS "-O2 -fno-omit-frame-pointer")
+  set_source_files_properties(oehost2
+    sgx/enter.c
+    sgx/linux/hoststackbridge.c
+    PROPERTIES
+    COMPILE_FLAGS "-O2 -fno-omit-frame-pointer")
 endif()
 
 add_dependencies(oehost syscall_untrusted_edl)
+add_dependencies(oehost2 syscall_untrusted_edl)
 add_dependencies(oehost tee_untrusted_edl)
+add_dependencies(oehost2 tee_untrusted_edl)
 if(OE_SGX)
   add_dependencies(oehost sgx_untrusted_edl)
+  add_dependencies(oehost2 sgx_untrusted_edl)
 endif()
 
 # TODO: Replace these with `find_package` and add as dependencies to
@@ -325,6 +344,10 @@ if (UNIX)
       openenclave::crypto
       openenclave::dl
       Threads::Threads)
+  target_link_libraries(oehost2 PRIVATE
+      openenclave::crypto
+      openenclave::dl
+      Threads::Threads)
   target_link_libraries(oehostverify PRIVATE
       openenclave::crypto
       openenclave::dl
@@ -334,6 +357,9 @@ if (UNIX)
     target_include_directories(oehost PRIVATE
       ${OE_TZ_OPTEE_CLIENT_INC})
     target_link_libraries(oehost PRIVATE teec)
+    target_include_directories(oehost2 PRIVATE
+      ${OE_TZ_OPTEE_CLIENT_INC})
+    target_link_libraries(oehost2 PRIVATE teec)
   endif ()
 elseif (WIN32)
   target_include_directories(oehost PRIVATE
@@ -341,6 +367,12 @@ elseif (WIN32)
   # Synchronization library is needed for WaitOnAddress/WakeByAddress functions
   # used by switchless ocalls worker threads.
   target_link_libraries(oehost PRIVATE bcrypt Crypt32 Synchronization)
+  target_include_directories(oehost2 PRIVATE
+    ${CMAKE_SOURCE_DIR}/3rdparty/mbedtls/mbedtls/include)
+  # Synchronization library is needed for WaitOnAddress/WakeByAddress functions
+  # used by switchless ocalls worker threads.
+  target_link_libraries(oehost2 PRIVATE bcrypt Crypt32 Synchronization)
+
   target_include_directories(oehostverify PRIVATE
     ${CMAKE_SOURCE_DIR}/3rdparty/mbedtls/mbedtls/include)
   target_link_libraries(oehostverify PRIVATE bcrypt Crypt32)
@@ -350,6 +382,7 @@ endif ()
 
 # For including edge routines.
 target_include_directories(oehost PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_include_directories(oehost2 PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
 if (OE_SGX)
   # Always link with the EnclaveCommonAPI
@@ -374,6 +407,7 @@ if (OE_SGX)
     set_target_properties(sgx_enclave_common PROPERTIES IMPORTED_LOCATION ${LIBSGX_COMMON})
   endif ()
   target_link_libraries(oehost PUBLIC $<BUILD_INTERFACE:sgx_enclave_common>)
+  target_link_libraries(oehost2 PUBLIC $<BUILD_INTERFACE:sgx_enclave_common>)
 
   # Optionally link in DCAP library
   if (HAS_QUOTE_PROVIDER)
@@ -397,8 +431,10 @@ if (OE_SGX)
       set_target_properties(sgx_dcap_ql PROPERTIES IMPORTED_LOCATION ${LIBSGX_QE})
     endif ()
     target_link_libraries(oehost PUBLIC $<BUILD_INTERFACE:sgx_dcap_ql>)
+    target_link_libraries(oehost2 PUBLIC $<BUILD_INTERFACE:sgx_dcap_ql>)
     # turn on 'OE_LINK_SGX_DCAP_QL' for the preprocessor
     target_compile_definitions(oehost PUBLIC OE_LINK_SGX_DCAP_QL)
+    target_compile_definitions(oehost2 PUBLIC OE_LINK_SGX_DCAP_QL)
   endif ()
 endif ()
 
@@ -413,9 +449,21 @@ target_compile_definitions(oehost
   OE_BUILD_UNTRUSTED
   OE_REPO_BRANCH_NAME="${GIT_BRANCH}"
   OE_REPO_LAST_COMMIT="${GIT_COMMIT}")
+target_compile_definitions(oehost2
+  PUBLIC
+  # NOTE: This definition is public to the rest of our project's
+  # targets, but should not yet be exposed to consumers of our
+  # package.
+  $<BUILD_INTERFACE:OE_API_VERSION=2>
+  PRIVATE
+  OE_BUILD_UNTRUSTED
+  OE_REPO_BRANCH_NAME="${GIT_BRANCH}"
+  OE_REPO_LAST_COMMIT="${GIT_COMMIT}")
+
 
 if (USE_DEBUG_MALLOC)
   target_compile_definitions(oehost PRIVATE OE_USE_DEBUG_MALLOC)
+  target_compile_definitions(oehost2 PRIVATE OE_USE_DEBUG_MALLOC)
 endif ()
 
 if (UNIX)
@@ -425,10 +473,17 @@ if (UNIX)
   target_compile_definitions(oehost
      PRIVATE _GNU_SOURCE
      PUBLIC $<$<NOT:$<CONFIG:debug>>:_FORTIFY_SOURCE=2>)
+  target_compile_options(oehost2
+     PRIVATE -Wno-attributes -Wmissing-prototypes -fPIC ${PLATFORM_FLAGS}
+     PUBLIC -fstack-protector-strong)
+  target_compile_definitions(oehost2
+     PRIVATE _GNU_SOURCE
+     PUBLIC $<$<NOT:$<CONFIG:debug>>:_FORTIFY_SOURCE=2>)
 endif ()
 
 if (CMAKE_C_COMPILER_ID MATCHES GNU)
   target_compile_options(oehost PRIVATE -Wjump-misses-init)
+  target_compile_options(oehost2 PRIVATE -Wjump-misses-init)
 endif ()
 
 # Use the same the compile options and definitions from oehost.
@@ -444,6 +499,8 @@ target_compile_definitions(oehostverify
 # TODO: Remove this hard coded output directory.
 set_property(TARGET oehost PROPERTY
   ARCHIVE_OUTPUT_DIRECTORY ${OE_LIBDIR}/openenclave/host)
+set_property(TARGET oehost PROPERTY
+  ARCHIVE_OUTPUT_DIRECTORY ${OE_LIBDIR}/openenclave/host)
 
 # Convenience library for creating a host-app (that needs the
 # -rdynamic link flag). We do this by default for the oehostverify target too.
@@ -454,6 +511,8 @@ target_link_libraries(oehostapp INTERFACE oehost)
 if (UNIX)
   target_link_libraries(oehost INTERFACE
       -Wl,-z,noexecstack)
+  target_link_libraries(oehost2 INTERFACE
+      -Wl,-z,noexecstack)
   target_link_libraries(oehostapp INTERFACE
       -rdynamic)
   target_link_libraries(oehostverify INTERFACE
@@ -463,6 +522,8 @@ endif ()
 
 # Install targets
 install(TARGETS oehost EXPORT openenclave-targets
+  ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/openenclave/host)
+install(TARGETS oehost2 EXPORT openenclave-targets
   ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}/openenclave/host)
 
 install(TARGETS oehostapp EXPORT openenclave-targets)
