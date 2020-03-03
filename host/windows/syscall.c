@@ -1458,7 +1458,6 @@ done:
     {
         free(wpathname);
     }
-
     return ret;
 }
 
