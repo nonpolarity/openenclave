@@ -8,16 +8,16 @@ if (BUILD_ENCLAVES)
 
     #note: this is Linux-specific
     if (WIN32)
-        set(BENCHDIR ${CMAKE_CURRENT_SOURCE_DIR}/bench/windows)
+        set(RESULTDIR ${CMAKE_CURRENT_SOURCE_DIR}/results/windows)
     else()
-        set(BENCHDIR ${CMAKE_CURRENT_SOURCE_DIR}/bench/others)
+        set(RESULTDIR ${CMAKE_CURRENT_SOURCE_DIR}/results/others)
     endif()
 
     add_test(NAME tests/print
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
         COMMAND sh -c "OE_LOG_LEVEL=NONE host/print_host ./enc/print_enc >testout.stdout 2>testout.stderr &&
-            diff ${BENCHDIR}/printhost.stdout testout.stdout &&
-            diff ${BENCHDIR}/printhost.stderr testout.stderr"
+            diff ${RESULTDIR}/printhost.stdout testout.stdout &&
+            diff ${RESULTDIR}/printhost.stderr testout.stderr"
         )
 else()
     add_enclave_test(tests/print print_host print_enc)
