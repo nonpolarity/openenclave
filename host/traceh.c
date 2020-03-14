@@ -14,7 +14,7 @@
 #include <sys/time.h>
 #endif
 #include <time.h>
-#include "dupenv.h"
+#include <openenclave/internal/dupenv.h>
 #include "fopen.h"
 #include "hostthread.h"
 
