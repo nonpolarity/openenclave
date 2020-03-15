@@ -16,6 +16,7 @@
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>
+#include <string.h>
 #include <sys/stat.h>
 
 // clang-format off
@@ -429,10 +430,9 @@ void normalize_path(char *path, size_t origlen, char slash)
 
 char* oe_win_path_to_posix(const char* path)
 {
-    size_t required_size = 0;
-    size_t current_dir_len = 0;
-    char* current_dir = NULL;
     char* enclave_path = NULL;
+    size_t src_len;
+    size_t dst_len;
 
     if (!path || strnlen_s(path, MAX_PATH) == 0 || strnlen_s(path, MAX_PATH) == MAX_PATH)
     {
@@ -440,115 +440,53 @@ char* oe_win_path_to_posix(const char* path)
         goto done;
     }
 
-    if (strcmp(path, "nul") == 0)
+    if (_stricmp(path, "nul") == 0)
     {
-        required_size = strlen("/dev/null") + 1;
-        enclave_path = calloc(required_size, sizeof(char));
+        src_len = strlen("/dev/null");
+        dst_len = src_len + 1;
+        enclave_path = calloc(dst_len, sizeof(char));
         if (!enclave_path)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
         sprintf(enclave_path, "%s", "/dev/null");
-        enclave_path[required_size - 1] = '\0';
+        enclave_path[dst_len - 1] = '\0';
 
         goto done;
     }
 
-    // absolute path with drive letter.
-    // we do not handle device type paths ("CON:) or double-letter paths in case
-    // of really large numbers of disks (>26). If you have those, mount on
-    // windows.
-    //
-
-    int origin_len =  strnlen_s(path, MAX_PATH);
-    if (origin_len >= 2 && isalpha(path[0]) && path[1] == ':')
-    {
-        // Abosolute path, just replace c: to /c
-        required_size = origin_len + 1;
-
-        enclave_path = (char*)calloc(required_size, sizeof(char));
-        if (!enclave_path)
-        {
-            _set_errno(OE_ENOMEM);
-            goto done;
-        }
-        if (oe_memcpy_s(enclave_path, sizeof(char) * required_size, path,
-                    origin_len) != OE_OK)
-        {
-            _set_errno(OE_EINVAL);
-            goto done;
-        }
-    }
-    else
-    {
-        // Relative path, ./tmp or /tmp.
-        // /tmp means D:\tmp if pwd is under D:\.
-        //  \tmp is the same case.
-        // Anyway we need pwd.
-        current_dir = _getcwd(NULL, 0);
-        current_dir_len = strnlen_s(current_dir, MAX_PATH);
-
-        if (current_dir_len < 2 || !isalpha(current_dir[0]) || current_dir[1] != ':')
-        {
-            //_getcwd result is wrong
-            _set_errno(OE_EINVAL);
-            goto done;
-        }
-
-        if (path[0] == '\\' || path[0] == '/')
-        {
-            // Only need the drive name.
-            current_dir_len = 2;
-        }
-
-        required_size = current_dir_len + origin_len + 1;
-
-        enclave_path = (char*)calloc(required_size, sizeof(char));
-        if (!enclave_path)
-        {
-            _set_errno(OE_ENOMEM);
-            goto done;
-        }
-
-        if (oe_memcpy_s(enclave_path, sizeof(char) * required_size,
-                    current_dir, sizeof(char) * current_dir_len) != OE_OK)
-        {
-            _set_errno(OE_EINVAL);
-            goto done;
-        }
-        if (oe_memcpy_s(enclave_path + sizeof(char) * current_dir_len,
-                    sizeof(char) * (required_size - current_dir_len), path,
-                    sizeof(char) * origin_len) != OE_OK)
-        {
-            _set_errno(OE_EINVAL);
-            goto done;
-        }
-    }
-
-    // Clean up
-
-    // There are at least 2 chars are copied to enclave_path as disk:
-    // Check the length here and replace disk: at the first 2 position as /disk.
-    if (required_size >= 3 && isalpha(enclave_path[0]) && enclave_path[1] == ':')
-    {
-        enclave_path[1] = enclave_path[0];
-        enclave_path[0] = '/';
-    }
-    else
+    char buffer[MAX_PATH];
+    if (_fullpath(buffer, path, MAX_PATH ) != NULL)
     {
         _set_errno(OE_EINVAL);
         goto done;
     }
 
-    enclave_path[required_size - 1] = '\0';
-    normalize_path(enclave_path, required_size, '/');
+    src_len =  strnlen_s(buffer, MAX_PATH);
+    dst_len = src_len + 1;
+    enclave_path = (char*)calloc(dst_len, sizeof(char));
+    if (!enclave_path)
+    {
+        _set_errno(OE_ENOMEM);
+        goto done;
+    }
+    if (oe_memcpy_s(enclave_path, dst_len, buffer, src_len) != OE_OK)
+    {
+        _set_errno(OE_EINVAL);
+        goto done;
+    }
+
+    int gap = 'A' - 'a';
+    for (int i = 0; i < src_len; i++)
+    {
+        if (enclave_path[i] >= 'A' && enclave_path[i] <= 'Z')
+        {
+            enclave_path[i] -= gap;
+        }
+    }
 
 done:
-    if (current_dir)
-    {
-        free(current_dir);
-    }
     return enclave_path;
 }
 
