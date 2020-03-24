@@ -1093,28 +1093,42 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
             break;
     }
 
-    // Now try to dup it as a handle first.
-    if (oldhandle >= 0 && DuplicateHandle(
-            GetCurrentProcess(),
-            oldhandle,
-            GetCurrentProcess(),
-            (HANDLE*)&ret,
-            0,
-            FALSE,
-            DUPLICATE_SAME_ACCESS))
+    // Check if oldhanle is a valid file handle.
+    DWORD file_type = GetFileType(oldhandle);
+    // Distinguish between these two cases:
+    // 1. a "valid" return of FILE_TYPE_UNKNOWN: the input is valid.
+    // 2. a return code due to a calling error: the input is not valid.
+    // While GetLastError returns NO_ERROR, it is case 1.
+    if (file_type != FILE_TYPE_UNKNOWN || GetLastError() == NO_ERROR)
     {
-        _set_errno(0);
-        goto done;
+        if (DuplicateHandle(GetCurrentProcess(),
+                    oldhandle,
+                    GetCurrentProcess(),
+                    (HANDLE*)&ret,
+                    0,
+                    FALSE,
+                    DUPLICATE_SAME_ACCESS))
+        {
+            _set_errno(0);
+        }
+        else
+        {
+            _set_errno(_winerr_to_errno(GetLastError()));
+        }
     }
-
-    _set_errno(_winerr_to_errno(GetLastError()));
-
-    // if fd is not a HANDLE, then try to dup it as a socket.
-    ret = _dup_socket(fd);
-    if (ret == -1)
-        _set_errno(OE_EINVAL);
     else
-        _set_errno(0);
+    {
+        // The input is a oe_socket_fd_t.
+        ret = _dup_socket(fd);
+        if (ret == -1)
+        {
+            _set_errno(OE_EINVAL);
+        }
+        else
+        {
+            _set_errno(0);
+        }
+    }
 
 done:
     return ret;
