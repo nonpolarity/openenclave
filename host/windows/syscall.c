@@ -637,7 +637,7 @@ done:
 //
 // windows is much poorer in file bits than unix, but it reencoded the
 // corresponding bits, so we have to translate
-static unsigned win_stat_to_stat(unsigned winstat)
+static unsigned _win_stat_to_stat(unsigned winstat)
 {
     unsigned ret_stat = 0;
 
@@ -675,6 +675,162 @@ static unsigned win_stat_to_stat(unsigned winstat)
 
 /* Mask to extract open() access mode flags: O_RDONLY, O_WRONLY, O_RDWR. */
 #define OPEN_ACCESS_MODE_MASK 0x00000003
+
+static int _set_security_info_from_rwx(LPTSTR lpszOwnFile, DWORD rwx)
+{
+    size_t ret = -1;
+
+    DWORD win_modes[] = {GENERIC_EXECUTE, GENERIC_WRITE, GENERIC_READ};
+    DWORD current_mode = 0x0001; // bit zero set to 1, which is S_IXOTH
+    DWORD grants[] = {0, 0, 0};
+    DWORD denies[] = {0, 0, 0};
+
+    for (int i = 2; i >= 0; i--)
+    {
+        for (int j = 0; j <= 2; j++)
+        {
+            if (rwx & current_mode)
+            {
+                grants[i] |= win_modes[j];
+            }
+            else
+            {
+                denies[i] |= win_modes[j];
+            }
+            // Shift the mode bit being examined to the next one in the order X, W, R.
+            current_mode <<= 1;
+        }
+        // Shift the group of mode bits being examined to the next one in the order OTH, GRP, USR
+        // And also reset the value of current bit to 1.
+        current_mode <<= 1;
+    }
+
+    PSID psid[3] = {NULL, NULL, NULL};
+    PACL pACL = NULL;
+    SID_IDENTIFIER_AUTHORITY SIDAuthCr = SECURITY_CREATOR_SID_AUTHORITY;
+    SID_IDENTIFIER_AUTHORITY SIDAuthWorld = SECURITY_WORLD_SID_AUTHORITY;
+
+    // Create a SID for the Owner.
+    if (!AllocateAndInitializeSid(&SIDAuthCr, 1,
+                     SECURITY_CREATOR_OWNER_RID,
+                     0,
+                     0, 0, 0, 0, 0, 0,
+                     &psid[0]))
+    {
+        printf("AllocateAndInitializeSid (Owner) error %u\n",
+                GetLastError());
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    // Create a SID for the Owner group.
+    if (!AllocateAndInitializeSid (&SIDAuthCr, 1,
+                    SECURITY_CREATOR_GROUP_RID,
+                    0,
+                    0, 0, 0, 0, 0, 0,
+                    &psid[1]))
+    {
+        printf("AllocateAndInitializeSid (Owner Group) error %u\n",
+                GetLastError());
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    // Create a SID for the Everyone group.
+    if (!AllocateAndInitializeSid(&SIDAuthWorld, 1,
+                     SECURITY_WORLD_RID,
+                     0,
+                     0, 0, 0, 0, 0, 0,
+                     &psid[2]))
+    {
+        printf("AllocateAndInitializeSid (Everyone Group) error %u\n",
+                GetLastError());
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    const int NUM_ACES  = 6;
+    EXPLICIT_ACCESS ea[NUM_ACES];
+    DWORD dwRes;
+    ZeroMemory(&ea, NUM_ACES * sizeof(EXPLICIT_ACCESS));
+
+    // Track the number of effective ea, to avoid blank permission ea.
+    int num_aces = 0;
+
+    for (int i = 0; i < 3; i++)
+    {
+        // Set access to each ea. According to ACE canoical rule,
+        // deny access must proceed before set access.
+        if (denies[i])
+        {
+            ea[num_aces].grfAccessPermissions = denies[i];
+            ea[num_aces].grfAccessMode = DENY_ACCESS;
+            ea[num_aces].grfInheritance = NO_INHERITANCE;
+            ea[num_aces].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+            ea[num_aces].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+            ea[num_aces].Trustee.ptstrName = (LPTSTR) psid[i];
+
+            num_aces++;
+        }
+
+        if (grants[i])
+        {
+            ea[num_aces].grfAccessPermissions = grants[i];
+            ea[num_aces].grfAccessMode = SET_ACCESS;
+            ea[num_aces].grfInheritance = NO_INHERITANCE;
+            ea[num_aces].Trustee.TrusteeForm = TRUSTEE_IS_SID;
+            ea[num_aces].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
+            ea[num_aces].Trustee.ptstrName = (LPTSTR) psid[i];
+
+            num_aces++;
+        }
+
+    }
+
+    // Write the effective ea to DACL.
+    if (ERROR_SUCCESS != SetEntriesInAcl(num_aces,
+                                         ea,
+                                         NULL,
+                                         &pACL))
+    {
+        printf("Failed SetEntriesInAcl!\n");
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    // Try to modify the object's DACL.
+    dwRes = SetNamedSecurityInfo(
+        lpszOwnFile,                 // name of the object
+        SE_FILE_OBJECT,              // type of object
+        DACL_SECURITY_INFORMATION,   // change only the object's DACL
+        NULL, NULL,                  // do not change owner or group
+        pACL,                        // DACL specified
+        NULL);                       // do not change SACL
+
+    if (dwRes != ERROR_SUCCESS)
+    {
+        printf("Fail to change DACL\n");
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    printf("Successfully changed DACL\n");
+    ret = 0;
+
+done:
+    for (int i = 0; i < 3; i++)
+    {
+        if (psid[i])
+        {
+            FreeSid(psid[i]);
+        }
+    }
+
+    if (pACL)
+       LocalFree(pACL);
+
+    return ret;
+}
 
 oe_host_fd_t oe_syscall_open_ocall(
     const char* pathname,
@@ -1333,7 +1489,7 @@ int oe_syscall_stat_ocall(const char* pathname, struct oe_stat* buf)
 
     buf->st_dev = winstat.st_dev;
     buf->st_ino = winstat.st_ino;
-    buf->st_mode = win_stat_to_stat(winstat.st_mode);
+    buf->st_mode = _win_stat_to_stat(winstat.st_mode);
     buf->st_nlink = winstat.st_nlink;
     buf->st_uid = winstat.st_uid;
     buf->st_gid = winstat.st_gid;
