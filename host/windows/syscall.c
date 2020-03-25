@@ -16,6 +16,7 @@
 #include <direct.h>
 #include <io.h>
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 #include <sys/stat.h>
 
@@ -38,6 +39,15 @@
 #include "../hostthread.h"
 #include "../../common/oe_host_socket.h"
 #include "syscall_u.h"
+
+#pragma comment(lib, "advapi32.lib")
+
+#include <windows.h>
+#include <stdio.h>
+#include <accctrl.h>
+#include <aclapi.h>
+
+#define NUM_ACES 6
 
 /*
 **==============================================================================
@@ -439,12 +449,18 @@ done:
 // Adds the string "post" to the resulting string end
 //
 // The string  must be freed
-WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
+char* oe_syscall_path_to_win(const char* path, const char* post)
 {
-    WCHAR* wpath = NULL;
+    char* wpath = NULL;
     char* current_dir = NULL;
 
-    if (!path || strnlen_s(path, OE_PATH_MAX) == 0 || strnlen_s(path, OE_PATH_MAX) == OE_PATH_MAX)
+    if (!path || strnlen_s(path, OE_PATH_MAX) == OE_PATH_MAX)
+    {
+        _set_errno(OE_EINVAL);
+        goto done;
+    }
+
+    if (post && strnlen_s(post, OE_PATH_MAX) == OE_PATH_MAX)
     {
         _set_errno(OE_EINVAL);
         goto done;
@@ -454,43 +470,21 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
     {
         // Just return "nul". On windows nul is the equivolent of /dev/null
         // on Linux.
-        wpath = (WCHAR*)(calloc(strlen("nul"), sizeof(WCHAR)));
+        wpath = calloc(strlen("nul") + 1, sizeof(char));
         if (!wpath)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
-        wpath[0] = 'n';
-        wpath[1] = 'u';
-        wpath[2] = 'l';
-        wpath[3] = '\0';
+        sprintf(wpath, "nul");
 
         goto done;
     }
 
-    size_t required_size = 0;
-    size_t current_dir_len = 0;
-    int pathlen = -1;
-    size_t postlen = 0;
-
-    pathlen = MultiByteToWideChar(CP_UTF8, 0, path, -1, NULL, 0);
-    // positive length is expected return.
-    if (pathlen <= 0)
-    {
-        _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
-    }
-
-    if (post)
-    {
-        postlen = MultiByteToWideChar(CP_UTF8, 0, post, -1, NULL, 0);
-        // positive length is expected return.
-        if (postlen <= 0)
-        {
-            _set_errno(_winerr_to_errno(GetLastError()));
-            goto done;
-        }
-    }
+    size_t pathlen = strnlen_s(path, OE_PATH_MAX);
+    size_t postlen = post ? strnlen_s(post, OE_PATH_MAX) : 0;
+    size_t required_size;
+    size_t finished;
 
     if (path[0] == '/')
     {
@@ -500,30 +494,21 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
                 (pathlen == 2 && path[0] =='/' && isalpha(path[1]) && path[2] == '\0'))
         {
             required_size = pathlen + postlen + 1;
-            wpath = (WCHAR*)(calloc(required_size, sizeof(WCHAR)));
+            wpath = calloc(required_size, sizeof(char));
             if (!wpath)
             {
                 _set_errno(OE_ENOMEM);
                 goto done;
             }
 
-            if(!MultiByteToWideChar(
-                CP_UTF8, 0, path, -1, wpath, (int)pathlen))
+            if (oe_memcpy_s(wpath, required_size * sizeof(char), path,
+                        pathlen * sizeof(char)) != OE_OK)
             {
-                _set_errno(_winerr_to_errno(GetLastError()));
-                free(wpath);
+                _set_errno(OE_ENOMEM);
                 goto done;
             }
-            if (postlen)
-            {
-                if (!MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen))
-                {
-                    _set_errno(_winerr_to_errno(GetLastError()));
-                    free(wpath);
-                    goto done;
-                }
-            }
+
+            finished = pathlen;
 
             wpath[0] = wpath[1];
             wpath[1] = ':';
@@ -532,30 +517,19 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         {
             // Absolute path needs drive letter
             required_size = pathlen + postlen + 3;
-            wpath = (WCHAR*)(calloc(required_size, sizeof(WCHAR)));
+            wpath = calloc(required_size, sizeof(char));
             if (!wpath)
             {
                 _set_errno(OE_ENOMEM);
                 goto done;
             }
-
-            if(!MultiByteToWideChar(
-                CP_UTF8, 0, path, -1, wpath + 2, (int)pathlen))
+            if (oe_memcpy_s(wpath + 2, (required_size - 2) * sizeof(char), path,
+                        pathlen * sizeof(char)) != OE_OK)
             {
-                _set_errno(_winerr_to_errno(GetLastError()));
-                free(wpath);
+                _set_errno(OE_ENOMEM);
                 goto done;
             }
-            if (postlen)
-            {
-                if(!MultiByteToWideChar(
-                    CP_UTF8, 0, post, -1, wpath + pathlen - 1, (int)postlen))
-                {
-                    _set_errno(_winerr_to_errno(GetLastError()));
-                    free(wpath);
-                    goto done;
-                }
-            }
+
 
             // getdrive returns 1 for A:
             int drive = _getdrive();
@@ -567,52 +541,53 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
 
             wpath[0] = drive + 'a' - 1;
             wpath[1] = ':';
+
+            finished = pathlen + 2;
         }
     }
     else
     {
         // Relative path
-        WCHAR* current_dir = _wgetcwd(NULL, 0);
+        char* current_dir = _getcwd(NULL, 0);
         if (!current_dir)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
-        size_t current_dir_len = wcslen(current_dir);
-
+        size_t current_dir_len = strnlen_s(current_dir, OE_PATH_MAX);
         required_size = pathlen + current_dir_len + postlen + 1;
-        wpath = (WCHAR*)(calloc(required_size, sizeof(WCHAR)));
+        wpath = calloc(required_size, sizeof(char));
         if (!wpath)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
 
-        if (oe_memcpy_s(wpath, required_size * sizeof(WCHAR), current_dir,
-                    current_dir_len * sizeof(WCHAR)) != OE_OK)
+        if (oe_memcpy_s(wpath, required_size * sizeof(char), current_dir,
+                    current_dir_len * sizeof(char)) != OE_OK)
         {
             _set_errno(OE_EINVAL);
             goto done;
         }
-        wpath[current_dir_len++] = '\\';
-        if(!MultiByteToWideChar(
-            CP_UTF8, 0, path, -1, wpath + current_dir_len, pathlen))
+        if (oe_memcpy_s(wpath + current_dir_len, (pathlen + postlen + 1)
+                    * sizeof(char), path,
+                    pathlen * sizeof(char)) != OE_OK)
         {
-            _set_errno(_winerr_to_errno(GetLastError()));
-            free(wpath);
-            wpath = NULL;
+            _set_errno(OE_EINVAL);
             goto done;
         }
-        if (postlen)
+
+        finished = current_dir_len + pathlen;
+    }
+
+
+    if (postlen)
+    {
+        if (oe_memcpy_s(wpath + finished, (required_size - finished) *
+                    sizeof(char), post, postlen * sizeof(char)) != OE_OK)
         {
-            if(!MultiByteToWideChar(CP_UTF8, 0, path, -1,
-                wpath + current_dir_len + pathlen - 1, (int)postlen))
-            {
-                _set_errno(_winerr_to_errno(GetLastError()));
-                free(wpath);
-                wpath = NULL;
-                goto done;
-            }
+            _set_errno(OE_EINVAL);
+            goto done;
         }
     }
 
@@ -624,13 +599,7 @@ WCHAR* oe_syscall_path_to_win(const char* path, const char* post)
         }
     }
 
-    wpath[required_size - 1] = '\0';
-
 done:
-    if (current_dir)
-    {
-        free(current_dir);
-    }
     return wpath;
 }
 
@@ -676,7 +645,7 @@ static unsigned _win_stat_to_stat(unsigned winstat)
 /* Mask to extract open() access mode flags: O_RDONLY, O_WRONLY, O_RDWR. */
 #define OPEN_ACCESS_MODE_MASK 0x00000003
 
-static int _set_security_info_from_rwx(LPTSTR lpszOwnFile, DWORD rwx)
+static int _set_security_info_from_rwx(const char* file, DWORD rwx)
 {
     size_t ret = -1;
 
@@ -749,7 +718,6 @@ static int _set_security_info_from_rwx(LPTSTR lpszOwnFile, DWORD rwx)
         goto done;
     }
 
-    const int NUM_ACES  = 6;
     EXPLICIT_ACCESS ea[NUM_ACES];
     DWORD dwRes;
     ZeroMemory(&ea, NUM_ACES * sizeof(EXPLICIT_ACCESS));
@@ -800,7 +768,7 @@ static int _set_security_info_from_rwx(LPTSTR lpszOwnFile, DWORD rwx)
 
     // Try to modify the object's DACL.
     dwRes = SetNamedSecurityInfo(
-        lpszOwnFile,                 // name of the object
+        (LPTSTR) file,                 // name of the object
         SE_FILE_OBJECT,              // type of object
         DACL_SECURITY_INFORMATION,   // change only the object's DACL
         NULL, NULL,                  // do not change owner or group
@@ -838,7 +806,7 @@ oe_host_fd_t oe_syscall_open_ocall(
     oe_mode_t mode)
 {
     oe_host_fd_t ret = -1;
-    WCHAR* wpathname = NULL;
+    char* wpathname = NULL;
 
     if (strcmp(pathname, "/dev/stdin") == 0)
     {
@@ -963,7 +931,7 @@ oe_host_fd_t oe_syscall_open_ocall(
         if (mode & OE_S_IWUSR)
             desired_access |= GENERIC_WRITE;
 
-        HANDLE h = CreateFileW(
+        HANDLE h = CreateFile(
             wpathname,
             desired_access,
             share_mode,
@@ -977,6 +945,11 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
+        if (_set_security_info_from_rwx(wpathname, mode))
+        {
+            _set_errno(OE_EINVAL);
+            goto done;
+        }
         ret = (oe_host_fd_t)h;
 
         // Windows doesn't do mode in the same way as linux. We can set user
@@ -988,7 +961,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             int wmode = ((mode & OE_S_IRUSR) ? _S_IREAD : 0) |
                         ((mode & OE_S_IWUSR) ? _S_IWRITE : 0);
 
-            int retx = _wchmod(wpathname, wmode);
+            int retx = _chmod(wpathname, wmode);
             if (retx < 0)
             {
                 _set_errno(_winerr_to_errno(GetLastError()));
@@ -1293,9 +1266,9 @@ done:
 struct WIN_DIR_DATA
 {
     HANDLE hFind;
-    WIN32_FIND_DATAW FindFileData;
+    WIN32_FIND_DATAA FindFileData;
     int dir_offs;
-    WCHAR* pdirpath;
+    char* pdirpath;
 };
 
 uint64_t oe_syscall_opendir_ocall(const char* pathname)
@@ -1309,8 +1282,8 @@ uint64_t oe_syscall_opendir_ocall(const char* pathname)
         goto done;
     }
 
-    WCHAR* wpathname = oe_syscall_path_to_win(pathname, "/*");
-    pdir->hFind = FindFirstFileW(wpathname, &pdir->FindFileData);
+    char* wpathname = oe_syscall_path_to_win(pathname, "/*");
+    pdir->hFind = FindFirstFileA(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
     {
         free(wpathname);
@@ -1355,7 +1328,7 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         goto done;
     }
 
-    if (!FindNextFileW(pdir->hFind, &pdir->FindFileData))
+    if (!FindNextFileA(pdir->hFind, &pdir->FindFileData))
     {
         DWORD winerr = GetLastError();
 
@@ -1372,20 +1345,12 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         goto done;
     }
 
-    nlen = WideCharToMultiByte(
-        CP_UTF8, 0, pdir->FindFileData.cFileName, -1, NULL, 0, NULL, NULL);
-    if(nlen == 0)
+    memset(entry->d_name, 0, OE_NAME_MAX + 1);
+    if (oe_memcpy_s(entry->d_name, OE_NAME_MAX + 1,
+                pdir->FindFileData.cFileName,
+                strnlen_s(pdir->FindFileData.cFileName, MAX_PATH)) != OE_OK)
     {
-        _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
-    }
-
-    ret = !WideCharToMultiByte(
-        CP_UTF8, 0, pdir->FindFileData.cFileName, nlen, entry->d_name,
-        sizeof(entry->d_name), NULL, NULL);
-    if (ret)
-    {
-        _set_errno(_winerr_to_errno(GetLastError()));
+        _set_errno(OE_EINVAL);
         goto done;
     }
 
@@ -1416,13 +1381,7 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
 {
     DWORD err = 0;
     struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
-    WCHAR* wpathname = pdir->pdirpath;
-    // Undo absolute path forcing again. We do this over because we need to
-    // preserve the allocation address for free.
-    if (wcslen(wpathname) >= 3 && wpathname[0] == '/' && wpathname[2] == ':')
-    {
-        wpathname++;
-    }
+    char* wpathname = pdir->pdirpath;
 
     if (!FindClose(pdir->hFind))
     {
@@ -1432,7 +1391,7 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
 
     memset(&pdir->FindFileData, 0, (size_t)sizeof(pdir->FindFileData));
 
-    pdir->hFind = FindFirstFileW(wpathname, &pdir->FindFileData);
+    pdir->hFind = FindFirstFileA(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
@@ -1471,14 +1430,13 @@ done:
 int oe_syscall_stat_ocall(const char* pathname, struct oe_stat* buf)
 {
     int ret = -1;
-    WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
     struct _stat64 winstat = {0};
 
-    ret = _wstat64(wpathname, &winstat);
+    ret = _stat64(wpathname, &winstat);
     if (ret < 0)
     {
         // How do we get to  wstat's error
-
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
@@ -1511,10 +1469,10 @@ done:
 int oe_syscall_access_ocall(const char* pathname, int mode)
 {
     int ret = -1;
-    WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
     int winmode = mode & ~1; // X_OK is a noop but makes access unhappy
-    ret = _waccess(wpathname, winmode);
+    ret = _access(wpathname, winmode);
     if (ret < 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
@@ -1532,10 +1490,10 @@ done:
 int oe_syscall_link_ocall(const char* oldpath, const char* newpath)
 {
     int ret = -1;
-    WCHAR* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
-    WCHAR* newwpath = oe_syscall_path_to_win(newpath, NULL);
+    char* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
+    char* newwpath = oe_syscall_path_to_win(newpath, NULL);
 
-    if (!CreateHardLinkW(newwpath, oldwpath, NULL))
+    if (!CreateHardLink(newwpath, oldwpath, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1558,9 +1516,9 @@ done:
 int oe_syscall_unlink_ocall(const char* pathname)
 {
     int ret = -1;
-    WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    ret = _wunlink(wpathname);
+    ret = _unlink(wpathname);
     if (ret != 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
@@ -1578,10 +1536,10 @@ done:
 int oe_syscall_rename_ocall(const char* oldpath, const char* newpath)
 {
     int ret = -1;
-    WCHAR* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
-    WCHAR* newwpath = oe_syscall_path_to_win(newpath, NULL);
+    char* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
+    char* newwpath = oe_syscall_path_to_win(newpath, NULL);
 
-    ret = _wrename(oldwpath, newwpath);
+    ret = rename(oldwpath, newwpath);
     if (ret < 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
@@ -1606,9 +1564,9 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
     int ret = -1;
     DWORD sfp_rtn = 0;
     LARGE_INTEGER new_offset = {0};
-    WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    HANDLE h = CreateFileW(
+    HANDLE h = CreateFile(
         wpathname,
         GENERIC_WRITE,
         FILE_SHARE_WRITE,
@@ -1660,12 +1618,19 @@ int oe_syscall_mkdir_ocall(const char* pathname, oe_mode_t mode)
     // executable attributes are obvious necessary. Thus mode is useless as
     // an input.
     int ret = -1;
-    WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    ret = _wmkdir(wpathname);
+    ret = _mkdir(wpathname);
     if (ret < 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
+    if (_set_security_info_from_rwx(wpathname, mode))
+    {
+        ret = -1;
+        _set_errno(OE_EINVAL);
         goto done;
     }
 
@@ -1680,9 +1645,9 @@ done:
 int oe_syscall_rmdir_ocall(const char* pathname)
 {
     int ret = -1;
-    WCHAR* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    ret = _wrmdir(wpathname);
+    ret = _rmdir(wpathname);
     if (ret < 0)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
