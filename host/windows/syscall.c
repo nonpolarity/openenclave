@@ -704,14 +704,14 @@ static HANDLE _createfile(
     // Deny ACE for Everyone is not necessary since it is the last entry.
     denies[2] = 0;
     // We also need to disable any unnecessary deny for Owner or group.
-    // GRP does not have any permission USR dones not have;
     // (GRP has some permission USR dones not have) is not true.
+    // Deny for USR is unnecessary.
     if (!(denies[0] & grants[1]))
     {
         denies[0] = 0;
     }
-    // OTH dones not some permission GRP does not have;
     // (OTH has some permission GRP does not have) is not true.
+    // Deny for GRP is unneccesarry.
     if (!(denies[1] & grants[2]))
     {
         denies[1] = 0;
@@ -721,7 +721,6 @@ static HANDLE _createfile(
     // Open a handle to the access token for the calling process.
     if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))
     {
-        printf("OpenProcessToken Error %u\n", GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
@@ -730,25 +729,19 @@ static HANDLE _createfile(
     if(!GetTokenInformation(hToken, TokenOwner, NULL, 0, &dwSize))
     {
         dwRes = GetLastError();
-        if( dwRes != ERROR_INSUFFICIENT_BUFFER ) {
-            printf("GetTokenInformation Error %u\n", dwRes);
+        if(dwRes != ERROR_INSUFFICIENT_BUFFER) {
             _set_errno(GetLastError());
             goto done;
         }
     }
 
     // Allocate the buffer.
-    // GroupInfo = (TOKEN_PRIMARY_GROUP*) GlobalAlloc( GPTR, dwSize );
-//    OwnerInfo = (TOKEN_OWNER *) HeapAlloc(
-//            GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
     OwnerInfo = (TOKEN_OWNER *) calloc(dwSize, sizeof(char));
-
 
     // Call GetTokenInformation again to get the group information.
     if(!GetTokenInformation(hToken, TokenOwner, OwnerInfo,
                             dwSize, &dwSize))
     {
-        printf("GetTokenInformation Error %u\n", GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
@@ -759,24 +752,19 @@ static HANDLE _createfile(
     if(!GetTokenInformation(hToken, TokenPrimaryGroup, NULL, 0, &dwSize))
     {
         dwRes = GetLastError();
-        if(dwRes != ERROR_INSUFFICIENT_BUFFER ) {
-            printf("GetTokenInformation Error %u\n", dwRes);
+        if(dwRes != ERROR_INSUFFICIENT_BUFFER) {
             _set_errno(GetLastError());
             goto done;
         }
     }
 
     // Allocate the buffer.
-    //GroupInfo = (TOKEN_PRIMARY_GROUP*) GlobalAlloc( GPTR, dwSize );
-//    GroupInfo = (TOKEN_PRIMARY_GROUP *) HeapAlloc(
-//            GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
     GroupInfo = (TOKEN_PRIMARY_GROUP *) calloc(dwSize, sizeof(char));
 
     // Call GetTokenInformation again to get the group information.
     if(!GetTokenInformation(hToken, TokenPrimaryGroup, GroupInfo,
                             dwSize, &dwSize))
     {
-        printf("GetTokenInformation Error %u\n", GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
@@ -790,13 +778,10 @@ static HANDLE _createfile(
                      0, 0, 0, 0, 0, 0,
                      &psid[2]))
     {
-        printf("AllocateAndInitializeSid (Everyone Group) error %u\n",
-                GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
 
-    // At most 3 set and 1 deny.
     EXPLICIT_ACCESS ea[NUM_ACES];
     ZeroMemory(&ea, NUM_ACES * sizeof(EXPLICIT_ACCESS));
 
@@ -839,8 +824,37 @@ static HANDLE _createfile(
                                          NULL,
                                          &pACL))
     {
-        printf("Failed SetEntriesInAcl!\n");
         _set_errno(GetLastError());
+        goto done;
+    }
+
+    // Deal with directory here.
+    // Compared to file, dir has much more aces as for CREATOR OWNER, GROUP
+    // It is much easy to let Windows finish the creation then apply the PACL.
+    if (dwDesiredAccess == FILE_DIRECTORY_FILE)
+    {
+        if (!CreateDirectoryA((LPTSTR) FileName, NULL))
+        {
+            _set_errno(_winerr_to_errno(GetLastError()));
+            goto done;
+        }
+
+        DWORD dwRes = SetNamedSecurityInfo(
+                (LPTSTR) FileName,          // name of the object
+                SE_FILE_OBJECT,             // type of object
+                DACL_SECURITY_INFORMATION,  // change only the object's DACL
+                NULL,                       // do not change owner
+                NULL,                       // do not change group
+                pACL,                       // DACL specified
+                NULL);                      // do not change SACL
+
+        if (dwRes != ERROR_SUCCESS)
+        {
+            _set_errno(GetLastError());
+            goto done;
+        }
+
+        ret = (HANDLE) 0;
         goto done;
     }
 
@@ -849,7 +863,6 @@ static HANDLE _createfile(
                              SECURITY_DESCRIPTOR_MIN_LENGTH);
     if (NULL == pSD)
     {
-        printf("LocalAlloc Error %u\n", GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
@@ -857,8 +870,6 @@ static HANDLE _createfile(
     if (!InitializeSecurityDescriptor(pSD,
             SECURITY_DESCRIPTOR_REVISION))
     {
-        printf("InitializeSecurityDescriptor Error %u\n",
-                                GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
@@ -869,8 +880,6 @@ static HANDLE _createfile(
             pACL,
             FALSE))   // not a default DACL
     {
-        printf("SetSecurityDescriptorDacl Error %u\n",
-                GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
@@ -880,99 +889,45 @@ static HANDLE _createfile(
     sa.lpSecurityDescriptor = pSD;
     sa.bInheritHandle = FALSE;
 
-    if (dwDesiredAccess == FILE_DIRECTORY_FILE)
+    DWORD CreateFlags = FILE_FLAG_BACKUP_SEMANTICS;
+    if (dwDesiredAccess & FILE_DELETE_ON_CLOSE)
+        CreateFlags |= FILE_FLAG_DELETE_ON_CLOSE;
+
+    if (dwDesiredAccess & FILE_DIRECTORY_FILE)
     {
-//       ret = CreateFile((LPTSTR) FileName,
-//                GENERIC_WRITE ,
-//                FILE_SHARE_WRITE,
-//                0,
-//                OPEN_EXISTING,
-//                FILE_FLAG_BACKUP_SEMANTICS,
-//                NULL);
-//        if (ret != INVALID_HANDLE_VALUE)
-//        {
-//            goto done;
-//        }
-
-        if (_mkdir(FileName) < 0)
-        {
-            _set_errno(_winerr_to_errno(GetLastError()));
-            goto done;
-        }
-//        ret = (HANDLE) 1;
-
-        if (!CreateDirectoryA((LPTSTR) FileName, NULL))
-        {
-            _set_errno(GetLastError());
-            goto done;
-        }
-        ret = CreateFile((LPTSTR) FileName,
-                GENERIC_READ,
-                FILE_SHARE_READ | FILE_SHARE_DELETE,
-                NULL,
-                OPEN_EXISTING,
-                FILE_FLAG_BACKUP_SEMANTICS,
-                NULL);
-//        ret = CreateFile((LPTSTR) FileName,
-//                0,
-//                0,
-//                0, // SecurityAttributes
-//                OPEN_EXISTING,
-//                FILE_FLAG_BACKUP_SEMANTICS,
-//                NULL);
-        if (ret == INVALID_HANDLE_VALUE)
-        {
-            _set_errno(GetLastError());
-            goto done;
-        }
+        /*
+         * It is not widely known but CreateFileW can be used to create directories!
+         * It requires the specification of both FILE_FLAG_BACKUP_SEMANTICS and
+         * FILE_FLAG_POSIX_SEMANTICS. It also requires that dwFlagsAndAttributes has
+         * FILE_ATTRIBUTE_DIRECTORY set.
+         */
+        CreateFlags |= FILE_FLAG_POSIX_SEMANTICS;
+        dwFlagsAndAttributes |= FILE_ATTRIBUTE_DIRECTORY;
     }
     else
     {
-        DWORD CreateFlags = FILE_FLAG_BACKUP_SEMANTICS;
-        if (dwDesiredAccess & FILE_DELETE_ON_CLOSE)
-            CreateFlags |= FILE_FLAG_DELETE_ON_CLOSE;
-
-        if (dwDesiredAccess & FILE_DIRECTORY_FILE)
-        {
-            /*
-             * It is not widely known but CreateFileW can be used to create directories!
-             * It requires the specification of both FILE_FLAG_BACKUP_SEMANTICS and
-             * FILE_FLAG_POSIX_SEMANTICS. It also requires that dwFlagsAndAttributes has
-             * FILE_ATTRIBUTE_DIRECTORY set.
-             */
-            CreateFlags |= FILE_FLAG_POSIX_SEMANTICS;
-            dwFlagsAndAttributes |= FILE_ATTRIBUTE_DIRECTORY;
-        }
-        else
-        {
-            dwFlagsAndAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
-        }
-
-        if (dwFlagsAndAttributes == 0)
-        {
-            dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL;
-        }
-
-
-
-        ret = CreateFile(
-                (LPTSTR) FileName,
-                dwDesiredAccess,
-                dwShareMode,
-                &sa,
-                dwCreationDisposition,
-                dwFlagsAndAttributes | CreateFlags,
-                hTemplateFile);
+        dwFlagsAndAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
     }
+
+    if (dwFlagsAndAttributes == 0)
+    {
+        dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL;
+    }
+
+    ret = CreateFile(
+            (LPTSTR) FileName,
+            dwDesiredAccess,
+            dwShareMode,
+            &sa,
+            dwCreationDisposition,
+            dwFlagsAndAttributes | CreateFlags,
+            hTemplateFile);
+
     // Check GetLastError for CreateFile error code.
     if (ret == INVALID_HANDLE_VALUE) {
-        DWORD dwErrorCode = 0;
-        dwErrorCode = GetLastError();
-        printf("CreateFile error = %d\n", dwErrorCode);
         _set_errno(GetLastError());
         goto done;
     }
-    printf("Successfully CreateFile!\n");
 
 done:
     if (psid[2])
@@ -1132,14 +1087,6 @@ oe_host_fd_t oe_syscall_open_ocall(
         if (mode & OE_S_IWUSR)
             desired_access |= GENERIC_WRITE;
 
-//        HANDLE h = CreateFileA(
-//            wpathname,
-//            desired_access,
-//            share_mode,
-//            NULL,
-//            create_dispos,
-//            file_flags,
-//            NULL);
         HANDLE h = _createfile(
             wpathname,
             desired_access,
@@ -1155,23 +1102,6 @@ oe_host_fd_t oe_syscall_open_ocall(
         }
 
         ret = (oe_host_fd_t)h;
-
-        // Windows doesn't do mode in the same way as linux. We can set user
-        // read/write and thats about it. There are elaborate ACLs and the such
-        // for code which is purpose written, but the only part of file mode
-        // expressed in windows is the read-only bit, and only for the owner.
-        if (flags & OE_O_CREAT)
-        {
-            int wmode = ((mode & OE_S_IRUSR) ? _S_IREAD : 0) |
-                        ((mode & OE_S_IWUSR) ? _S_IWRITE : 0);
-
-            int retx = _chmod(wpathname, wmode);
-            if (retx < 0)
-            {
-                _set_errno(_winerr_to_errno(GetLastError()));
-                goto done;
-            }
-        }
     }
 
 done:
@@ -1817,19 +1747,9 @@ done:
 
 int oe_syscall_mkdir_ocall(const char* pathname, oe_mode_t mode)
 {
-    // Windows doesn't do mode in the same way as linux and can only take the
-    // first part which is the attribute for owner. But readable, writable and
-    // executable attributes are obvious necessary. Thus mode is useless as
-    // an input.
     int ret = -1;
     char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-//    ret = _mkdir(wpathname);
-//    if (ret < 0)
-//    {
-//        _set_errno(_winerr_to_errno(GetLastError()));
-//        goto done;
-//    }
     HANDLE h = _createfile(
             wpathname,
             FILE_DIRECTORY_FILE,
