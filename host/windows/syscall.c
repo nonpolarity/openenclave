@@ -46,8 +46,7 @@
 #include <stdio.h>
 #include <accctrl.h>
 #include <aclapi.h>
-
-#define NUM_ACES 6
+#include <winternl.h>
 
 /*
 **==============================================================================
@@ -642,17 +641,35 @@ static unsigned _win_stat_to_stat(unsigned winstat)
     return ret_stat;
 }
 
-/* Mask to extract open() access mode flags: O_RDONLY, O_WRONLY, O_RDWR. */
-#define OPEN_ACCESS_MODE_MASK 0x00000003
+#define NUM_ACES 4
 
-static int _set_security_info_from_rwx(const char* file, DWORD rwx)
+static HANDLE _createfile(
+        char*       FileName,
+        DWORD       dwDesiredAccess,
+        DWORD       dwShareMode,
+        DWORD       dwCreationDisposition,
+        DWORD       dwFlagsAndAttributes,
+        HANDLE      hTemplateFile,
+        oe_mode_t   rwx)
 {
-    size_t ret = -1;
 
-    DWORD win_modes[] = {GENERIC_EXECUTE, GENERIC_WRITE, GENERIC_READ};
-    DWORD current_mode = 0x0001; // bit zero set to 1, which is S_IXOTH
-    DWORD grants[] = {0, 0, 0};
-    DWORD denies[] = {0, 0, 0};
+    HANDLE ret = INVALID_HANDLE_VALUE;
+
+    PSECURITY_DESCRIPTOR pSD = NULL;
+    SECURITY_ATTRIBUTES sa;
+    PSID psid[3] = {NULL, NULL, NULL};
+    PACL pACL = NULL;
+    SID_IDENTIFIER_AUTHORITY SIDAuthCr = SECURITY_CREATOR_SID_AUTHORITY;
+    SID_IDENTIFIER_AUTHORITY SIDAuthWorld = SECURITY_WORLD_SID_AUTHORITY;
+
+    HANDLE hToken;
+    TOKEN_PRIMARY_GROUP* GroupInfo;
+    TOKEN_OWNER *OwnerInfo;
+
+    oe_mode_t win_modes[] = {GENERIC_EXECUTE, GENERIC_WRITE, GENERIC_READ};
+    oe_mode_t current_mode = 01; // bit zero set to 1, which is S_IXOTH
+    oe_mode_t grants[] = {0, 0, 0};
+    oe_mode_t denies[] = {0, 0, 0};
 
     for (int i = 2; i >= 0; i--)
     {
@@ -671,39 +688,100 @@ static int _set_security_info_from_rwx(const char* file, DWORD rwx)
         }
         // Shift the group of mode bits being examined to the next one in the order OTH, GRP, USR
         // And also reset the value of current bit to 1.
-        current_mode <<= 1;
     }
 
-    PSID psid[3] = {NULL, NULL, NULL};
-    PACL pACL = NULL;
-    SID_IDENTIFIER_AUTHORITY SIDAuthCr = SECURITY_CREATOR_SID_AUTHORITY;
-    SID_IDENTIFIER_AUTHORITY SIDAuthWorld = SECURITY_WORLD_SID_AUTHORITY;
-
-    // Create a SID for the Owner.
-    if (!AllocateAndInitializeSid(&SIDAuthCr, 1,
-                     SECURITY_CREATOR_OWNER_RID,
-                     0,
-                     0, 0, 0, 0, 0, 0,
-                     &psid[0]))
+    // In this case it needs two deny ACEs, which is impossible.
+    // GRP has some permission USR dones not have.
+    if ((denies[0] & grants[1]) &&
+            // OTH has some permission GRP does not have.
+            (denies[1] & grants[2]))
     {
-        printf("AllocateAndInitializeSid (Owner) error %u\n",
-                GetLastError());
+        printf("This mode %04o is not supported on Windows.", rwx);
         _set_errno(GetLastError());
         goto done;
     }
 
-    // Create a SID for the Owner group.
-    if (!AllocateAndInitializeSid (&SIDAuthCr, 1,
-                    SECURITY_CREATOR_GROUP_RID,
-                    0,
-                    0, 0, 0, 0, 0, 0,
-                    &psid[1]))
+    // Deny ACE for Everyone is not necessary since it is the last entry.
+    denies[2] = 0;
+    // We also need to disable any unnecessary deny for Owner or group.
+    // GRP does not have any permission USR dones not have;
+    // (GRP has some permission USR dones not have) is not true.
+    if (!(denies[0] & grants[1]))
     {
-        printf("AllocateAndInitializeSid (Owner Group) error %u\n",
-                GetLastError());
+        denies[0] = 0;
+    }
+    // OTH dones not some permission GRP does not have;
+    // (OTH has some permission GRP does not have) is not true.
+    if (!(denies[1] & grants[2]))
+    {
+        denies[1] = 0;
+    }
+
+    DWORD dwSize = 0, dwRes = 0;
+    // Open a handle to the access token for the calling process.
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))
+    {
+        printf("OpenProcessToken Error %u\n", GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
+
+    // Call GetTokenInformation to get the buffer size.
+    if(!GetTokenInformation(hToken, TokenOwner, NULL, 0, &dwSize))
+    {
+        dwRes = GetLastError();
+        if( dwRes != ERROR_INSUFFICIENT_BUFFER ) {
+            printf("GetTokenInformation Error %u\n", dwRes);
+            _set_errno(GetLastError());
+            goto done;
+        }
+    }
+
+    // Allocate the buffer.
+    // GroupInfo = (TOKEN_PRIMARY_GROUP*) GlobalAlloc( GPTR, dwSize );
+//    OwnerInfo = (TOKEN_OWNER *) HeapAlloc(
+//            GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
+    OwnerInfo = (TOKEN_OWNER *) calloc(dwSize, sizeof(char));
+
+
+    // Call GetTokenInformation again to get the group information.
+    if(!GetTokenInformation(hToken, TokenOwner, OwnerInfo,
+                            dwSize, &dwSize))
+    {
+        printf("GetTokenInformation Error %u\n", GetLastError());
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    psid[0] = OwnerInfo->Owner;
+
+    // Call GetTokenInformation to get the buffer size.
+    if(!GetTokenInformation(hToken, TokenPrimaryGroup, NULL, 0, &dwSize))
+    {
+        dwRes = GetLastError();
+        if(dwRes != ERROR_INSUFFICIENT_BUFFER ) {
+            printf("GetTokenInformation Error %u\n", dwRes);
+            _set_errno(GetLastError());
+            goto done;
+        }
+    }
+
+    // Allocate the buffer.
+    //GroupInfo = (TOKEN_PRIMARY_GROUP*) GlobalAlloc( GPTR, dwSize );
+//    GroupInfo = (TOKEN_PRIMARY_GROUP *) HeapAlloc(
+//            GetProcessHeap(), HEAP_ZERO_MEMORY, dwSize);
+    GroupInfo = (TOKEN_PRIMARY_GROUP *) calloc(dwSize, sizeof(char));
+
+    // Call GetTokenInformation again to get the group information.
+    if(!GetTokenInformation(hToken, TokenPrimaryGroup, GroupInfo,
+                            dwSize, &dwSize))
+    {
+        printf("GetTokenInformation Error %u\n", GetLastError());
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    psid[1] = GroupInfo->PrimaryGroup;
 
     // Create a SID for the Everyone group.
     if (!AllocateAndInitializeSid(&SIDAuthWorld, 1,
@@ -718,8 +796,8 @@ static int _set_security_info_from_rwx(const char* file, DWORD rwx)
         goto done;
     }
 
+    // At most 3 set and 1 deny.
     EXPLICIT_ACCESS ea[NUM_ACES];
-    DWORD dwRes;
     ZeroMemory(&ea, NUM_ACES * sizeof(EXPLICIT_ACCESS));
 
     // Track the number of effective ea, to avoid blank permission ea.
@@ -729,7 +807,7 @@ static int _set_security_info_from_rwx(const char* file, DWORD rwx)
     {
         // Set access to each ea. According to ACE canoical rule,
         // deny access must proceed before set access.
-        if (denies[i])
+        if (i == 1 && denies[i])
         {
             ea[num_aces].grfAccessPermissions = denies[i];
             ea[num_aces].grfAccessMode = DENY_ACCESS;
@@ -766,39 +844,162 @@ static int _set_security_info_from_rwx(const char* file, DWORD rwx)
         goto done;
     }
 
-    // Try to modify the object's DACL.
-    dwRes = SetNamedSecurityInfo(
-        (LPTSTR) file,                 // name of the object
-        SE_FILE_OBJECT,              // type of object
-        DACL_SECURITY_INFORMATION,   // change only the object's DACL
-        NULL, NULL,                  // do not change owner or group
-        pACL,                        // DACL specified
-        NULL);                       // do not change SACL
-
-    if (dwRes != ERROR_SUCCESS)
+    // Initialize a security descriptor.
+    pSD = (PSECURITY_DESCRIPTOR) LocalAlloc(LPTR,
+                             SECURITY_DESCRIPTOR_MIN_LENGTH);
+    if (NULL == pSD)
     {
-        printf("Fail to change DACL\n");
+        printf("LocalAlloc Error %u\n", GetLastError());
         _set_errno(GetLastError());
         goto done;
     }
 
-    printf("Successfully changed DACL\n");
-    ret = 0;
-
-done:
-    for (int i = 0; i < 3; i++)
+    if (!InitializeSecurityDescriptor(pSD,
+            SECURITY_DESCRIPTOR_REVISION))
     {
-        if (psid[i])
-        {
-            FreeSid(psid[i]);
-        }
+        printf("InitializeSecurityDescriptor Error %u\n",
+                                GetLastError());
+        _set_errno(GetLastError());
+        goto done;
     }
 
-    if (pACL)
-       LocalFree(pACL);
+    // Add the ACL to the security descriptor.
+    if (!SetSecurityDescriptorDacl(pSD,
+            TRUE,     // bDaclPresent flag
+            pACL,
+            FALSE))   // not a default DACL
+    {
+        printf("SetSecurityDescriptorDacl Error %u\n",
+                GetLastError());
+        _set_errno(GetLastError());
+        goto done;
+    }
 
+    // Initialize a security attributes structure.
+    sa.nLength = sizeof (SECURITY_ATTRIBUTES);
+    sa.lpSecurityDescriptor = pSD;
+    sa.bInheritHandle = FALSE;
+
+    if (dwDesiredAccess == FILE_DIRECTORY_FILE)
+    {
+//       ret = CreateFile((LPTSTR) FileName,
+//                GENERIC_WRITE ,
+//                FILE_SHARE_WRITE,
+//                0,
+//                OPEN_EXISTING,
+//                FILE_FLAG_BACKUP_SEMANTICS,
+//                NULL);
+//        if (ret != INVALID_HANDLE_VALUE)
+//        {
+//            goto done;
+//        }
+
+        if (_mkdir(FileName) < 0)
+        {
+            _set_errno(_winerr_to_errno(GetLastError()));
+            goto done;
+        }
+//        ret = (HANDLE) 1;
+
+        if (!CreateDirectoryA((LPTSTR) FileName, NULL))
+        {
+            _set_errno(GetLastError());
+            goto done;
+        }
+        ret = CreateFile((LPTSTR) FileName,
+                GENERIC_READ,
+                FILE_SHARE_READ | FILE_SHARE_DELETE,
+                NULL,
+                OPEN_EXISTING,
+                FILE_FLAG_BACKUP_SEMANTICS,
+                NULL);
+//        ret = CreateFile((LPTSTR) FileName,
+//                0,
+//                0,
+//                0, // SecurityAttributes
+//                OPEN_EXISTING,
+//                FILE_FLAG_BACKUP_SEMANTICS,
+//                NULL);
+        if (ret == INVALID_HANDLE_VALUE)
+        {
+            _set_errno(GetLastError());
+            goto done;
+        }
+    }
+    else
+    {
+        DWORD CreateFlags = FILE_FLAG_BACKUP_SEMANTICS;
+        if (dwDesiredAccess & FILE_DELETE_ON_CLOSE)
+            CreateFlags |= FILE_FLAG_DELETE_ON_CLOSE;
+
+        if (dwDesiredAccess & FILE_DIRECTORY_FILE)
+        {
+            /*
+             * It is not widely known but CreateFileW can be used to create directories!
+             * It requires the specification of both FILE_FLAG_BACKUP_SEMANTICS and
+             * FILE_FLAG_POSIX_SEMANTICS. It also requires that dwFlagsAndAttributes has
+             * FILE_ATTRIBUTE_DIRECTORY set.
+             */
+            CreateFlags |= FILE_FLAG_POSIX_SEMANTICS;
+            dwFlagsAndAttributes |= FILE_ATTRIBUTE_DIRECTORY;
+        }
+        else
+        {
+            dwFlagsAndAttributes &= ~FILE_ATTRIBUTE_DIRECTORY;
+        }
+
+        if (dwFlagsAndAttributes == 0)
+        {
+            dwFlagsAndAttributes = FILE_ATTRIBUTE_NORMAL;
+        }
+
+
+
+        ret = CreateFile(
+                (LPTSTR) FileName,
+                dwDesiredAccess,
+                dwShareMode,
+                &sa,
+                dwCreationDisposition,
+                dwFlagsAndAttributes | CreateFlags,
+                hTemplateFile);
+    }
+    // Check GetLastError for CreateFile error code.
+    if (ret == INVALID_HANDLE_VALUE) {
+        DWORD dwErrorCode = 0;
+        dwErrorCode = GetLastError();
+        printf("CreateFile error = %d\n", dwErrorCode);
+        _set_errno(GetLastError());
+        goto done;
+    }
+    printf("Successfully CreateFile!\n");
+
+done:
+    if (psid[2])
+    {
+        FreeSid(psid[2]);
+    }
+    if (pACL)
+    {
+       LocalFree(pACL);
+    }
+    if (pSD)
+    {
+       LocalFree(pSD);
+    }
+    if (OwnerInfo)
+    {
+        free(OwnerInfo);
+    }
+    if (GroupInfo)
+    {
+        free(GroupInfo);
+    }
     return ret;
 }
+
+/* Mask to extract open() access mode flags: O_RDONLY, O_WRONLY, O_RDWR. */
+#define OPEN_ACCESS_MODE_MASK 0x00000003
 
 oe_host_fd_t oe_syscall_open_ocall(
     const char* pathname,
@@ -931,25 +1132,28 @@ oe_host_fd_t oe_syscall_open_ocall(
         if (mode & OE_S_IWUSR)
             desired_access |= GENERIC_WRITE;
 
-        HANDLE h = CreateFile(
+//        HANDLE h = CreateFileA(
+//            wpathname,
+//            desired_access,
+//            share_mode,
+//            NULL,
+//            create_dispos,
+//            file_flags,
+//            NULL);
+        HANDLE h = _createfile(
             wpathname,
             desired_access,
             share_mode,
-            NULL,
             create_dispos,
             file_flags,
-            NULL);
+            NULL,
+            mode);
         if (h == INVALID_HANDLE_VALUE)
         {
             _set_errno(_winerr_to_errno(GetLastError()));
             goto done;
         }
 
-        if (_set_security_info_from_rwx(wpathname, mode))
-        {
-            _set_errno(OE_EINVAL);
-            goto done;
-        }
         ret = (oe_host_fd_t)h;
 
         // Windows doesn't do mode in the same way as linux. We can set user
@@ -1620,19 +1824,27 @@ int oe_syscall_mkdir_ocall(const char* pathname, oe_mode_t mode)
     int ret = -1;
     char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    ret = _mkdir(wpathname);
-    if (ret < 0)
+//    ret = _mkdir(wpathname);
+//    if (ret < 0)
+//    {
+//        _set_errno(_winerr_to_errno(GetLastError()));
+//        goto done;
+//    }
+    HANDLE h = _createfile(
+            wpathname,
+            FILE_DIRECTORY_FILE,
+            0,
+            0,
+            0,
+            NULL,
+            mode);
+    if (h == INVALID_HANDLE_VALUE)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
-    if (_set_security_info_from_rwx(wpathname, mode))
-    {
-        ret = -1;
-        _set_errno(OE_EINVAL);
-        goto done;
-    }
+    ret = 0;
 
 done:
     if (wpathname)
