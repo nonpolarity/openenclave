@@ -356,6 +356,7 @@ __declspec(noreturn) static void _panic(
 char* oe_win_path_to_posix(const char* path)
 {
     char* enclave_path = NULL;
+    size_t len;
     size_t src_len;
     size_t dst_len;
 
@@ -367,50 +368,45 @@ char* oe_win_path_to_posix(const char* path)
 
     if (_stricmp(path, "nul") == 0)
     {
-        src_len = strlen("/dev/null");
-        dst_len = src_len + 1;
-        enclave_path = calloc(dst_len, sizeof(char));
+        len = strlen("/dev/null") + 1;
+        enclave_path = calloc(len, sizeof(char));
         if (!enclave_path)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
         sprintf(enclave_path, "%s", "/dev/null");
-        enclave_path[dst_len - 1] = '\0';
 
         goto done;
     }
 
-    char buffer[MAX_PATH];
-    if(GetFullPathNameA(path, MAX_PATH, buffer, NULL) == 0)
-    {
-        _set_errno(OE_EINVAL);
-        return (char *) path;
-        goto done;
-    }
-
-    // the real path length should not less than 2.
-    src_len =  strnlen_s(buffer, MAX_PATH);
-    if(src_len < 2)
-    {
-        _set_errno(OE_EINVAL);
-        goto done;
-    }
-
-    dst_len = src_len + 1;
-    enclave_path = (char*)calloc(dst_len, sizeof(char));
+    enclave_path = (char*)calloc(MAX_PATH, sizeof(char));
     if (!enclave_path)
     {
         _set_errno(OE_ENOMEM);
         goto done;
     }
-    if (oe_memcpy_s(enclave_path, dst_len, buffer, src_len) != OE_OK)
+
+    len = GetFullPathNameA(path, 0, enclave_path, NULL);
+    if (len == 0 || len >= MAX_PATH)
     {
-        _set_errno(OE_EINVAL);
+        _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
-    if (!isalpha(enclave_path[0]) || enclave_path[1] != ':')
+    if((enclave_path = (char *)_expand(enclave_path, len)) == NULL)
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
+    if(GetFullPathNameA(path, MAX_PATH, enclave_path, NULL) == 0)
+    {
+         _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
+    if(!isalpha(enclave_path[0]) || len < 2 || enclave_path[1] != ':')
     {
         _set_errno(OE_EINVAL);
         goto done;
@@ -422,7 +418,7 @@ char* oe_win_path_to_posix(const char* path)
 
     // /C\Folder\File to /c/folder/file
     int gap = 'A' - 'a';
-    for (int i = 0; i < src_len; i++)
+    for (int i = 0; i < len; i++)
     {
         if (enclave_path[i] >= 'A' && enclave_path[i] <= 'Z')
         {
