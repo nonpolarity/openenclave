@@ -48,6 +48,14 @@
 #include <aclapi.h>
 #include <winternl.h>
 
+struct WIN_DIR_DATA
+{
+    HANDLE hFind;
+    WIN32_FIND_DATAA FindFileData;
+    int dir_offs;
+    char* pdirpath;
+};
+
 /*
 **==============================================================================
 **
@@ -1412,14 +1420,6 @@ done:
     return ret;
 }
 
-struct WIN_DIR_DATA
-{
-    HANDLE hFind;
-    WIN32_FIND_DATAA FindFileData;
-    int dir_offs;
-    char* pdirpath;
-};
-
 uint64_t oe_syscall_opendir_ocall(const char* pathname)
 {
     struct WIN_DIR_DATA* pdir = NULL;
@@ -1464,8 +1464,9 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         goto done;
     }
 
-    // FindNextFileW doesn't return '.' because it shows up in opendir and we
-    // lose it but we know it is there, so we can just return it
+    // oe_syscall_opendir_ocall already called FindFirstFileW which returned the '.' entry.
+    // To preserve the readdir semantics, if oe_syscall_readdir_ocall is passed a valid dirp
+    // with the initial offset of 0, we return '.' directly instead of calling FindNextFileW.
     if (pdir->dir_offs == 0)
     {
         entry->d_off = pdir->dir_offs++;
@@ -1503,7 +1504,7 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         goto done;
     }
 
-    entry->d_type = 0;
+    entry->d_type = OE_DT_UNKNOWN;
     if (pdir->FindFileData.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)
     {
         entry->d_type = OE_DT_DIR;
@@ -1512,7 +1513,7 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
     {
         entry->d_type = OE_DT_LNK;
     }
-    else
+    else if (pdir->FindFileData.dwFileAttributes & FILE_ATTRIBUTE_NORMAL)
     {
         entry->d_type = OE_DT_REG;
     }
