@@ -1266,15 +1266,34 @@ done:
 
 oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
 {
-    ssize_t ret = -1;
-    DWORD sfp_rtn = 0;
-    LARGE_INTEGER new_offset = {0};
+    OE_STATIC_ASSERT(
+            SEEK_SET == FILE_BEGIN &&
+            SEEK_CUR == FILE_CURRENT &&
+            SEEK_END == FILE_END);
 
+    ssize_t ret = -1;
+
+    LARGE_INTEGER const origin_pos = {0};
+    LARGE_INTEGER saved_pos;
+    if (!SetFilePointerEx((HANDLE)fd, origin_pos, (PLARGE_INTEGER)&saved_pos, FILE_CURRENT))
+    {
+        _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
+    LARGE_INTEGER new_offset = {0};
     new_offset.QuadPart = offset;
     if (!SetFilePointerEx(
             (HANDLE)fd, new_offset, (PLARGE_INTEGER)&new_offset, whence))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
+        goto done;
+    }
+
+    if (new_offset.QuadPart > LONG_MAX)
+    {
+        SetFilePointerEx((HANDLE)fd, saved_pos, NULL, FILE_BEGIN);
+        _set_errno(EINVAL);
         goto done;
     }
 
