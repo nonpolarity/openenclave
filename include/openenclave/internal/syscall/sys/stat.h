@@ -45,6 +45,10 @@ OE_EXTERNC_BEGIN
 #define OE_S_IRWGRP (OE_S_IRGRP | OE_S_IWGRP)
 #define OE_S_IRWOTH (OE_S_IROTH | OE_S_IWOTH)
 
+#define OE_R_OR 04
+#define OE_W_OR 02
+#define OE_X_OR 01
+
 #define __OE_STAT oe_stat
 #include <openenclave/internal/syscall/sys/bits/stat.h>
 #undef __OE_STAT

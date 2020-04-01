@@ -23,6 +23,9 @@
 // clang-format off
 
 #include <winsock2.h>
+// To avoid redifinition error aclapi.h must be included after winsock2.h
+#include <aclapi.h>
+#include <winternl.h>
 #include <windows.h>
 #include <Ws2def.h>
 #include <VersionHelpers.h>
@@ -39,14 +42,6 @@
 #include "../hostthread.h"
 #include "../../common/oe_host_socket.h"
 #include "syscall_u.h"
-
-#pragma comment(lib, "advapi32.lib")
-
-#include <windows.h>
-#include <stdio.h>
-#include <accctrl.h>
-#include <aclapi.h>
-#include <winternl.h>
 
 struct WIN_DIR_DATA
 {
@@ -388,7 +383,7 @@ char* oe_win_path_to_posix(const char* path)
         goto done;
     }
 
-    enclave_path = (char*)calloc(MAX_PATH, sizeof(char));
+    enclave_path = (char*) calloc(MAX_PATH, sizeof(char));
     if (!enclave_path)
     {
         _set_errno(OE_ENOMEM);
@@ -609,7 +604,7 @@ done:
 //
 // windows is much poorer in file bits than unix, but it reencoded the
 // corresponding bits, so we have to translate
-static unsigned _win_stat_to_stat(unsigned winstat)
+static unsigned _win_stat_mode_to_posix(unsigned winstat)
 {
     unsigned ret_stat = 0;
 
@@ -863,8 +858,7 @@ static HANDLE _createfile(
     }
 
     // Initialize a security descriptor.
-    pSD = (PSECURITY_DESCRIPTOR) LocalAlloc(LPTR,
-                             SECURITY_DESCRIPTOR_MIN_LENGTH);
+    pSD = (PSECURITY_DESCRIPTOR) calloc(SECURITY_DESCRIPTOR_MIN_LENGTH, sizeof(char));
     if (NULL == pSD)
     {
         _set_errno(GetLastError());
@@ -940,11 +934,11 @@ done:
     }
     if (pACL)
     {
-       LocalFree(pACL);
+        LocalFree(pACL);
     }
     if (pSD)
     {
-       LocalFree(pSD);
+        free(pSD);
     }
     if (OwnerInfo)
     {
@@ -976,7 +970,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
+        ret = (oe_host_fd_t) GetStdHandle(STD_INPUT_HANDLE);
         goto done;
     }
     else if (strcmp(pathname, "/dev/stdout") == 0)
@@ -987,7 +981,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
+        ret = (oe_host_fd_t) GetStdHandle(STD_OUTPUT_HANDLE);
         goto done;
     }
     else if (strcmp(pathname, "/dev/stderr") == 0)
@@ -998,7 +992,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
+        ret = (oe_host_fd_t) GetStdHandle(STD_ERROR_HANDLE);
         goto done;
     }
     else
@@ -1105,7 +1099,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t)h;
+        ret = (oe_host_fd_t) h;
     }
 
 done:
@@ -1121,7 +1115,7 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
     ssize_t ret = -1;
     DWORD bytes_returned = 0;
 
-    HANDLE handle = (HANDLE)fd;
+    HANDLE handle = (HANDLE) fd;
 
     // Convert fd 0, 1, 2 as needed
     switch (fd)
@@ -1139,13 +1133,13 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
             break;
     }
 
-    if (!ReadFile(handle, buf, (DWORD)count, &bytes_returned, NULL))
+    if (!ReadFile(handle, buf, (DWORD) count, &bytes_returned, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
-    ret = (ssize_t)bytes_returned;
+    ret = (ssize_t) bytes_returned;
 
 done:
     return ret;
@@ -1156,7 +1150,7 @@ ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
     ssize_t ret = -1;
     DWORD bytes_written = 0;
 
-    HANDLE handle = (HANDLE)fd;
+    HANDLE handle = (HANDLE) fd;
 
     // Convert fd 0, 1, 2 as needed
     switch (fd)
@@ -1178,13 +1172,13 @@ ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
             break;
     }
 
-    if (!WriteFile(handle, buf, (DWORD)count, &bytes_written, NULL))
+    if (!WriteFile(handle, buf, (DWORD) count, &bytes_written, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
-    ret = (ssize_t)bytes_written;
+    ret = (ssize_t) bytes_written;
 
 done:
     return ret;
@@ -1196,7 +1190,7 @@ ssize_t oe_syscall_readv_ocall(
     int iovcnt,
     size_t iov_buf_size)
 {
-    struct oe_iovec* iov = (struct oe_iovec*)iov_buf;
+    struct oe_iovec* iov = (struct oe_iovec*) iov_buf;
     ssize_t ret = -1;
     ssize_t size_read;
 
@@ -1220,7 +1214,7 @@ ssize_t oe_syscall_readv_ocall(
         size_t count;
 
         buf = &iov[iovcnt];
-        count = iov_buf_size - ((size_t)iovcnt * sizeof(struct oe_iovec));
+        count = iov_buf_size - ((size_t) iovcnt * sizeof(struct oe_iovec));
 
         size_read = oe_syscall_read_ocall(fd, buf, count);
     }
@@ -1239,7 +1233,7 @@ ssize_t oe_syscall_writev_ocall(
 {
     ssize_t ret = -1;
     ssize_t size_written;
-    struct oe_iovec* iov = (struct oe_iovec*)iov_buf;
+    struct oe_iovec* iov = (struct oe_iovec*) iov_buf;
 
     errno = 0;
 
@@ -1261,7 +1255,7 @@ ssize_t oe_syscall_writev_ocall(
         size_t count;
 
         buf = &iov[iovcnt];
-        count = iov_buf_size - ((size_t)iovcnt * sizeof(struct oe_iovec));
+        count = iov_buf_size - ((size_t) iovcnt * sizeof(struct oe_iovec));
 
         size_written = oe_syscall_write_ocall(fd, buf, count);
     }
@@ -1283,7 +1277,7 @@ oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
 
     LARGE_INTEGER const origin_pos = {0};
     LARGE_INTEGER saved_pos;
-    if (!SetFilePointerEx((HANDLE)fd, origin_pos, (PLARGE_INTEGER)&saved_pos, FILE_CURRENT))
+    if (!SetFilePointerEx((HANDLE) fd, origin_pos, (PLARGE_INTEGER) &saved_pos, FILE_CURRENT))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1292,7 +1286,7 @@ oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
     LARGE_INTEGER new_offset = {0};
     new_offset.QuadPart = offset;
     if (!SetFilePointerEx(
-            (HANDLE)fd, new_offset, (PLARGE_INTEGER)&new_offset, whence))
+            (HANDLE) fd, new_offset, (PLARGE_INTEGER) &new_offset, whence))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1300,12 +1294,12 @@ oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
 
     if (new_offset.QuadPart > LONG_MAX)
     {
-        SetFilePointerEx((HANDLE)fd, saved_pos, NULL, FILE_BEGIN);
+        SetFilePointerEx((HANDLE) fd, saved_pos, NULL, FILE_BEGIN);
         _set_errno(EINVAL);
         goto done;
     }
 
-    ret = (oe_off_t)new_offset.QuadPart;
+    ret = (oe_off_t) new_offset.QuadPart;
 
 done:
     return ret;
@@ -1314,7 +1308,7 @@ done:
 int oe_syscall_close_ocall(oe_host_fd_t fd)
 {
     int ret = -1;
-    HANDLE handle = (HANDLE)fd;
+    HANDLE handle = (HANDLE) fd;
 
     // Convert fd 0, 1, 2 as needed
     switch (fd)
@@ -1358,7 +1352,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
 {
     oe_host_fd_t ret = -1;
     // suppose fd is a handle.
-    HANDLE oldhandle = (HANDLE)fd;
+    HANDLE oldhandle = (HANDLE) fd;
 
     // If fd is a stdin/out/err, convert it to the corresponding HANDLE.
     switch (fd)
@@ -1390,7 +1384,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
         if (DuplicateHandle(GetCurrentProcess(),
                     oldhandle,
                     GetCurrentProcess(),
-                    (HANDLE*)&ret,
+                    (HANDLE*) &ret,
                     0,
                     FALSE,
                     DUPLICATE_SAME_ACCESS))
@@ -1424,7 +1418,7 @@ uint64_t oe_syscall_opendir_ocall(const char* pathname)
 {
     struct WIN_DIR_DATA* pdir = NULL;
 
-    pdir = (struct WIN_DIR_DATA*)calloc(1, sizeof(struct WIN_DIR_DATA));
+    pdir = (struct WIN_DIR_DATA*) calloc(1, sizeof(struct WIN_DIR_DATA));
     if (!pdir)
     {
         _set_errno(OE_ENOMEM);
@@ -1445,14 +1439,14 @@ uint64_t oe_syscall_opendir_ocall(const char* pathname)
     pdir->pdirpath = wpathname;
 
 done:
-    return (uint64_t)pdir;
+    return (uint64_t) pdir;
 }
 
 int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
 {
     int ret = -1;
 
-    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
+    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*) dirp;
     int nlen = -1;
 
     _set_errno(0);
@@ -1530,7 +1524,7 @@ done:
 void oe_syscall_rewinddir_ocall(uint64_t dirp)
 {
     DWORD err = 0;
-    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
+    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*) dirp;
     char* wpathname = pdir->pdirpath;
 
     if (!FindClose(pdir->hFind))
@@ -1539,7 +1533,7 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
         goto done;
     }
 
-    memset(&pdir->FindFileData, 0, (size_t)sizeof(pdir->FindFileData));
+    memset(&pdir->FindFileData, 0, (size_t) sizeof(pdir->FindFileData));
 
     pdir->hFind = FindFirstFileA(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
@@ -1556,7 +1550,7 @@ done:
 int oe_syscall_closedir_ocall(uint64_t dirp)
 {
     int ret = -1;
-    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
+    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*) dirp;
 
     if (!dirp)
     {
@@ -1586,18 +1580,20 @@ int oe_syscall_stat_ocall(const char* pathname, struct oe_stat* buf)
     ret = _stat64(wpathname, &winstat);
     if (ret < 0)
     {
-        // How do we get to  wstat's error
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
+    // The macro #define st_atime st_atim.tv_sec
+    // provides backward compatibility for older version POSIX. Here we need
+    // to undef to avoid winstat.st_atime be treated as winstat.st_atim.tv_sec.
 #undef st_atime
 #undef st_mtime
 #undef st_ctime
 
     buf->st_dev = winstat.st_dev;
     buf->st_ino = winstat.st_ino;
-    buf->st_mode = _win_stat_to_stat(winstat.st_mode);
+    buf->st_mode = _win_stat_mode_to_posix(winstat.st_mode);
     buf->st_nlink = winstat.st_nlink;
     buf->st_uid = winstat.st_uid;
     buf->st_gid = winstat.st_gid;
@@ -1621,18 +1617,115 @@ int oe_syscall_access_ocall(const char* pathname, int mode)
     int ret = -1;
     char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    int winmode = mode & ~1; // X_OK is a noop but makes access unhappy
-    ret = _access(wpathname, winmode);
-    if (ret < 0)
+    HANDLE hToken = NULL;
+    TOKEN_OWNER *OwnerInfo = NULL;
+    TRUSTEE trustee;
+    ACL* pACL = NULL;
+    SECURITY_DESCRIPTOR* pSD = NULL;
+    DWORD dwSize = 0, dwRes = 0;
+    // Open a handle to the access token for the calling process.
+    if (!OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &hToken))
     {
-        _set_errno(_winerr_to_errno(GetLastError()));
+        _set_errno(GetLastError());
         goto done;
     }
+
+    // Call GetTokenInformation to get the buffer size.
+    if(!GetTokenInformation(hToken, TokenOwner, NULL, 0, &dwSize))
+    {
+        dwRes = GetLastError();
+        if(dwRes != ERROR_INSUFFICIENT_BUFFER) {
+            _set_errno(GetLastError());
+            goto done;
+        }
+    }
+
+    // Allocate the buffer.
+    OwnerInfo = (TOKEN_OWNER *) calloc(dwSize, sizeof(char));
+
+    // Call GetTokenInformation again to get the group information.
+    if(!GetTokenInformation(hToken, TokenOwner, OwnerInfo,
+                            dwSize, &dwSize))
+    {
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    BuildTrusteeWithSid(&trustee, OwnerInfo->Owner);
+
+    // Obtain the file ACL
+    dwSize = 0;
+    if (!GetFileSecurity(wpathname,
+            DACL_SECURITY_INFORMATION,
+            NULL,
+            0,
+            &dwSize))
+    {
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    pSD = (SECURITY_DESCRIPTOR*) calloc(dwSize, sizeof(char));
+    if (!pSD)
+    {
+        _set_errno(GetLastError());
+        goto done;
+    }
+    DWORD nSD = dwSize;
+    if (!GetFileSecurity(wpathname,
+            DACL_SECURITY_INFORMATION,
+            pSD,
+            nSD,
+            &dwSize))
+    {
+        _set_errno(GetLastError());
+        goto done;
+    }
+
+    BOOL bDaclPresent, bDefaulted;
+    GetSecurityDescriptorDacl(pSD,
+            &bDaclPresent,
+            &pACL,
+            &bDefaulted);
+
+    // Obtain ACCESS_MASK from TRUSTEE and ACL
+    ACCESS_MASK     accessMask;
+    GetEffectiveRightsFromAcl(pACL, &trustee, &accessMask);
+
+    if  ((mode & OE_R_OR) &&
+            ((accessMask & STANDARD_RIGHTS_READ) != STANDARD_RIGHTS_READ))
+    {
+        goto done;
+    }
+    if  ((mode & OE_W_OR) &&
+            ((accessMask & STANDARD_RIGHTS_WRITE) != STANDARD_RIGHTS_WRITE))
+    {
+        goto done;
+    }
+    if  ((mode & OE_X_OR) &&
+            ((accessMask & STANDARD_RIGHTS_EXECUTE) != STANDARD_RIGHTS_EXECUTE))
+    {
+        goto done;
+    }
+
+    ret = 0;
 
 done:
     if (wpathname)
     {
         free(wpathname);
+    }
+    if (pACL)
+    {
+        LocalFree(pACL);
+    }
+    if (pSD)
+    {
+        free(pSD);
+    }
+    if (OwnerInfo)
+    {
+        free(OwnerInfo);
     }
     return ret;
 }
@@ -1668,12 +1761,13 @@ int oe_syscall_unlink_ocall(const char* pathname)
     int ret = -1;
     char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    ret = _unlink(wpathname);
-    if (ret != 0)
+    if(!DeleteFile(wpathname))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
+
+    ret = 0;
 
 done:
     if (wpathname)
@@ -1712,7 +1806,6 @@ done:
 int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
 {
     int ret = -1;
-    DWORD sfp_rtn = 0;
     LARGE_INTEGER new_offset = {0};
     char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
@@ -1732,7 +1825,7 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
 
     new_offset.QuadPart = length;
     if (!SetFilePointerEx(
-            h, new_offset, (PLARGE_INTEGER)&new_offset, FILE_BEGIN))
+            h, new_offset, NULL, FILE_BEGIN))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1744,14 +1837,12 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
         goto done;
     }
 
+    ret = 0;
+
 done:
     if (h != INVALID_HANDLE_VALUE)
     {
-        ret = !CloseHandle(h);
-        if (ret)
-        {
-            _set_errno(_winerr_to_errno(GetLastError()));
-        }
+        CloseHandle(h);
     }
 
     if (wpathname)
@@ -1795,12 +1886,13 @@ int oe_syscall_rmdir_ocall(const char* pathname)
     int ret = -1;
     char* wpathname = oe_syscall_path_to_win(pathname, NULL);
 
-    ret = _rmdir(wpathname);
-    if (ret < 0)
+    if (!RemoveDirectory(wpathname))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
+
+    ret = 0;
 
 done:
     if (wpathname)
@@ -1833,12 +1925,12 @@ oe_host_fd_t _make_socket_fd(SOCKET sock)
     if (sock != INVALID_SOCKET)
     {
         oe_socket_fd_t* socket_fd =
-            (oe_socket_fd_t*)malloc(sizeof(oe_socket_fd_t));
+            (oe_socket_fd_t*) malloc(sizeof(oe_socket_fd_t));
         if (socket_fd)
         {
             socket_fd->magic = OE_SOCKET_FD_MAGIC;
             socket_fd->socket = sock;
-            fd = (oe_host_fd_t)socket_fd;
+            fd = (oe_host_fd_t) socket_fd;
         }
     }
     return fd;
@@ -1846,7 +1938,7 @@ oe_host_fd_t _make_socket_fd(SOCKET sock)
 
 SOCKET _get_socket(oe_host_fd_t fd)
 {
-    oe_socket_fd_t* socket_fd = (oe_socket_fd_t*)fd;
+    oe_socket_fd_t* socket_fd = (oe_socket_fd_t*) fd;
     if (socket_fd && socket_fd->magic == OE_SOCKET_FD_MAGIC)
         return socket_fd->socket;
     return INVALID_SOCKET;
@@ -1854,7 +1946,7 @@ SOCKET _get_socket(oe_host_fd_t fd)
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t oldfd)
 {
-    oe_socket_fd_t* old_socket_fd = (oe_socket_fd_t*)oldfd;
+    oe_socket_fd_t* old_socket_fd = (oe_socket_fd_t*) oldfd;
     if (old_socket_fd && old_socket_fd->magic == OE_SOCKET_FD_MAGIC)
     {
         // Duplicate socket
@@ -1891,7 +1983,7 @@ static int _wsa_startup()
     int ret = 0;
 
     if (oe_atomic_compare_and_swap(
-            (volatile int64_t*)&wsa_init_done, (int64_t)0, (int64_t)1))
+            (volatile int64_t*) &wsa_init_done, (int64_t) 0, (int64_t) 1))
     {
         ret = WSAStartup(2, &wsaData);
         if (ret != 0)
@@ -1942,7 +2034,7 @@ int oe_syscall_connect_ocall(
     oe_socklen_t addrlen)
 {
     int ret = connect(
-        _get_socket(sockfd), (const struct sockaddr*)addr, (int)addrlen);
+        _get_socket(sockfd), (const struct sockaddr*) addr, (int) addrlen);
     if (ret != 0)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -1957,10 +2049,10 @@ oe_host_fd_t oe_syscall_accept_ocall(
     oe_socklen_t addrlen_in,
     oe_socklen_t* addrlen_out)
 {
-    int addrlen = (int)addrlen_in;
+    int addrlen = (int) addrlen_in;
     SOCKET conn_socket = accept(
         _get_socket(sockfd),
-        (struct sockaddr*)addr,
+        (struct sockaddr*) addr,
         addrlen_out ? &addrlen : NULL);
     if (conn_socket == INVALID_SOCKET)
     {
@@ -1980,7 +2072,7 @@ int oe_syscall_bind_ocall(
     const struct oe_sockaddr* addr,
     oe_socklen_t addrlen)
 {
-    int ret = bind(_get_socket(sockfd), (const struct sockaddr*)addr, addrlen);
+    int ret = bind(_get_socket(sockfd), (const struct sockaddr*) addr, addrlen);
     if (ret != 0)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -2061,7 +2153,7 @@ ssize_t oe_syscall_recv_ocall(
     ssize_t ret;
     _set_errno(0);
 
-    ret = recv(_get_socket(sockfd), (char*)buf, (int)len, flags);
+    ret = recv(_get_socket(sockfd), (char*) buf, (int) len, flags);
     if (ret == SOCKET_ERROR)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -2084,11 +2176,11 @@ ssize_t oe_syscall_recvfrom_ocall(
 
     ret = recvfrom(
         _get_socket(sockfd),
-        (char*)buf,
-        (int)len,
+        (char*) buf,
+        (int) len,
         flags,
-        (struct sockaddr*)src_addr,
-        (int*)&addrlen_in);
+        (struct sockaddr*) src_addr,
+        (int*) &addrlen_in);
     if (ret == SOCKET_ERROR)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -2136,7 +2228,7 @@ ssize_t oe_syscall_sendto_ocall(
         buf,
         len,
         flags,
-        (struct sockaddr*)src_addr,
+        (struct sockaddr*) src_addr,
         addrlen);
     if (ret == SOCKET_ERROR)
     {
@@ -2197,7 +2289,7 @@ int oe_syscall_close_socket_ocall(oe_host_fd_t sockfd)
             _set_errno(_winsockerr_to_errno(WSAGetLastError()));
         }
 
-        free((oe_socket_fd_t*)sockfd);
+        free((oe_socket_fd_t*) sockfd);
     }
     return r;
 }
@@ -2419,12 +2511,12 @@ int oe_syscall_getaddrinfo_open_ocall(
     }
 
     ret =
-        getaddrinfo(node, service, (const struct addrinfo*)hints, &handle->res);
+        getaddrinfo(node, service, (const struct addrinfo*) hints, &handle->res);
     if (ret == 0)
     {
         handle->magic = GETADDRINFO_HANDLE_MAGIC;
         handle->next = handle->res;
-        *handle_out = (uint64_t)handle;
+        *handle_out = (uint64_t) handle;
         handle = NULL;
     }
     else
@@ -2475,7 +2567,7 @@ int oe_syscall_getaddrinfo_read_ocall(
 int oe_syscall_getaddrinfo_close_ocall(uint64_t handle_)
 {
     int ret = -1;
-    getaddrinfo_handle_t* handle = _cast_getaddrinfo_handle((void*)handle_);
+    getaddrinfo_handle_t* handle = _cast_getaddrinfo_handle((void*) handle_);
 
     _set_errno(0);
 
