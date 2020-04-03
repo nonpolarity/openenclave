@@ -268,7 +268,7 @@ target_link_libraries(oehostverify PUBLIC oe_includes)
 target_link_libraries(oehost PUBLIC oe_includes)
 
 if(WIN32)
-  target_link_libraries(oehost PUBLIC ws2_32)
+  target_link_libraries(oehost PUBLIC ws2_32 shlwapi)
 endif()
 
 if (OE_SGX AND UNIX)

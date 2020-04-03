@@ -340,231 +340,225 @@ __declspec(noreturn) static void _panic(
 **==============================================================================
 */
 
-// Allocates char* string which follows the expected rules for
-// enclaves. Paths in the format
-// <driveletter>:\<item>\<item> -> /<driveletter>/<item>/item>
-// <driveletter>:/<item>/<item> -> /<driveletter>/<item>/item>
-// paths without drive letter are detected and the drive added
-// /<item>/<item> -> /<current driveletter>/<item>/item>
-// relative paths are translated to absolute with drive letter
-// returns null if the string is illegal
-//
-// The string  must be freed
-//
-// we don't handle paths which start with the "\\?\" thing. To support the
-// win32 apis we use WCHAR* as intermediate variables. But the input and output
-// is char* since no "wopen" in Linux. Caller must make sure the input is
-// passed in correctly as ASCII encoding.
-
 #define POSIX_DEV_NULL "/dev/null"
-#define WIN_DEV_NULL "nul"
+#define WIN_DEV_NULL "NUL"
 
+inline char* _dev_null_to_nul(const char* path)
+{
+    /* DEV_NULL_PATH is case sensitive on Linux */
+    if (strcmp(path, POSIX_DEV_NULL) == 0)
+        return strdup(WIN_DEV_NULL);
+
+    return NULL;
+}
+
+inline char* _nul_to_dev_null(const char* path)
+{
+    /* WIN_NUL_PATH is case insensitive on Windows */
+    if (_stricmp(path, WIN_DEV_NULL) == 0)
+        return strdup(POSIX_DEV_NULL);
+
+    return NULL;
+}
+
+inline void _canonicalize_path_separators(
+    char* path,
+    uint32_t path_length,
+    char separator)
+{
+    for (uint32_t i = 0; i < path_length; i++)
+    {
+        if (path[i] == '\\' || path[i] == '/')
+            path[i] = separator;
+    }
+}
+
+inline void _windows_to_oe_syscall_volume_root(char* path, uint32_t path_length)
+{
+    /* convert "C:" to "/c" */
+    if (path && path_length >= 2 && isalpha(path[0]) && path[1] == ':')
+    {
+        path[1] = tolower(path[0]);
+        path[0] = '/';
+    }
+}
+
+inline bool _is_oe_syscall_path_volume_rooted(const char* path)
+{
+    /* check for OE-defined volume root at the start of the path e.g. /c/ */
+    size_t path_length = strnlen(path, MAX_PATH);
+    return (
+        path && path_length >= 2 && path[0] == '/' && isalpha(path[1]) &&
+        (path[2] == '\0' || path[2] == '/'));
+}
+
+inline void _fix_oe_syscall_volume_root(char* path, uint32_t path_length)
+{
+    /* path_length excludes null terminator */
+    if (path && path_length >= 4)
+    {
+        /* If the original OE syscall path specified a volume root,
+         * fix up the resulting canonicalized Windows full path by replacing:
+         *  - "C:\x" with "X:\"
+         *  - "C:\x\*" with "X:\*" */
+        if (isalpha(path[0]) && path[1] == ':' && path[2] == '\\' &&
+            isalpha(path[3]) && (path[4] == '\0' || path[4] == '\\'))
+        {
+            path[0] = toupper(path[3]);
+            if (path[4] == '\0')
+                path[3] = '\0';
+            else
+            {
+                memmove(path + 3, path + 5, path_length - 5);
+                path[path_length - 2] = 0;
+            }
+        }
+    }
+}
+
+/* Wrapper for size-and-allocate invocation of GetFullPathNameA */
+errno_t _get_full_path_name(
+    const char* path,
+    uint32_t* outpath_length,
+    char** outpath)
+{
+    errno_t err = 0;
+    DWORD required_size = GetFullPathNameA(path, 0, NULL, NULL);
+    if (required_size == 0)
+    {
+        DWORD winerror = GetLastError();
+        OE_TRACE_ERROR("GetFullPathNameA failed with %#x\n", winerror);
+        err = _winerr_to_errno(winerror);
+        goto done;
+    }
+    char* outpath_buf = (char*)malloc(required_size);
+    if (!outpath_buf)
+    {
+        err = OE_ENOMEM;
+        goto done;
+    }
+
+    /* Note that the resulting path can be smaller than the originally
+     * requested buffer size as GetFullPathName canonicalizes the path after
+     * copy */
+    *outpath_length = GetFullPathNameA(path, required_size, outpath_buf, NULL);
+
+    if (*outpath_length == 0)
+    {
+        DWORD winerror = GetLastError();
+        OE_TRACE_ERROR("GetFullPathNameA failed with %#x\n", winerror);
+        err = _winerr_to_errno(winerror);
+        goto done;
+    }
+
+    *outpath = outpath_buf;
+
+done:
+    if (err && outpath)
+        free(outpath);
+    return err;
+}
+
+/* Converts a Windows path to a POSIX style used in enclaves by OE syscalls:
+ *
+ * <drive_letter>:\<item>\<item> -> /<drive_letter>/<item>/<item>
+ * \<item>\<item> -> /<current_drive_letter>/<item>/<item>
+ * <item>\<item> -> /<current_drive_letter>/<current_directory>/<item>/<item>
+ *
+ * This method will also canonicalize away path traversals ('.' & '..') and
+ * mixed path separators ('/' & '\') to '/'.
+ *
+ * This method returns NULL and sets errno on failure.
+ * On success, the caller is responsible for calling free() on the
+ * returned string.
+ *
+ * TODO: This method currently only handles ANSI paths and does not explicitly
+ * handle long path names.
+ */
 char* oe_win_path_to_posix(const char* path)
 {
     char* enclave_path = NULL;
-    size_t len;
-    size_t src_len;
-    size_t dst_len;
+    uint32_t enclave_path_length = 0;
 
-    if (!path || strnlen_s(path, MAX_PATH) == 0 || strnlen_s(path, MAX_PATH) == MAX_PATH)
+    if (!path || strnlen_s(path, MAX_PATH) == 0 ||
+        strnlen_s(path, MAX_PATH) == MAX_PATH)
     {
         _set_errno(OE_EINVAL);
         goto done;
     }
 
-    if (_stricmp(path, WIN_DEV_NULL) == 0)
-    {
-        len = strlen(POSIX_DEV_NULL) + 1;
-        enclave_path = calloc(len, sizeof(char));
-        if (!enclave_path)
-        {
-            _set_errno(OE_ENOMEM);
-            goto done;
-        }
-        sprintf_s(enclave_path, len, "%s", POSIX_DEV_NULL);
+    enclave_path = _nul_to_dev_null(path);
+    if (enclave_path)
+        goto done;
 
+    errno_t err =
+        _get_full_path_name(path, &enclave_path_length, &enclave_path);
+    if (err)
+    {
+        _set_errno(err);
         goto done;
     }
 
-    enclave_path = (char*)calloc(MAX_PATH, sizeof(char));
-    if (!enclave_path)
-    {
-        _set_errno(OE_ENOMEM);
-        goto done;
-    }
+    _canonicalize_path_separators(enclave_path, enclave_path_length, '/');
 
-    len = GetFullPathNameA(path, 0, enclave_path, NULL);
-    if (len == 0)
-    {
-        _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
-    }
-
-    if((enclave_path = (char *)_expand(enclave_path, len)) == NULL)
-    {
-        _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
-    }
-
-    // len includes the null at the end.
-    // The return value, which not includes null,
-    // is supposed to be len - 1,
-    if(GetFullPathNameA(path, len, enclave_path, NULL) != len - 1)
-    {
-         _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
-    }
-
-    if(!isalpha(enclave_path[0]) || len < 2 || enclave_path[1] != ':')
+    _windows_to_oe_syscall_volume_root(enclave_path, enclave_path_length);
+    if (enclave_path_length < 2 || enclave_path[0] != '/')
     {
         _set_errno(OE_EINVAL);
+        free(enclave_path);
+        enclave_path = NULL;
         goto done;
-    }
-
-    // C:\Folder\File to  /C\Folder\File
-    enclave_path[1] = enclave_path[0];
-    enclave_path[0] = '/';
-
-    // /C\Folder\File to /c/folder/file
-    int gap = 'A' - 'a';
-    for (int i = 0; i < len; i++)
-    {
-        if (enclave_path[i] >= 'A' && enclave_path[i] <= 'Z')
-        {
-            enclave_path[i] -= gap;
-        }
-        else if (enclave_path[i] == '\\')
-        {
-            enclave_path[i] = '/';
-        }
     }
 
 done:
     return enclave_path;
 }
 
-// Allocates WCHAR* string which follows the expected rules for
-// enclaves comminication with the host file system API. Paths in the format
-// /<driveletter>/<item>/<item>  become <driveletter>:\\<item>\<item>
-//
-// The resulting string, especially with a relative path, will probably contain
-// mixed slashes. We believe Windows handles this.
-//
-// Adds the string "post" to the resulting string end
-//
-// The string  must be freed
-
-char* oe_syscall_path_to_win(const char* path, const char* post)
+/* Converts a POSIX-style path used in enclaves by OE syscalls to a Windows
+ * absolute path:
+ *
+ * /<drive_letter>/<item>/<item> -> <drive_letter>:\<item>\<item>
+ * /<item>/<item> -> <current_drive_letter>:\<item>\<item>
+ * <item>/<item> -> <current_drive_letter>:\<current_directory>\<item>\<item>
+ *
+ * This method will also canonicalize away path traversals ('.' & '..') and
+ * mixed path separators ('/' & '\') to '/'.
+ *
+ * This method returns NULL and sets errno on failure.
+ * On success, the caller is responsible for calling free() on the
+ * returned string.
+ *
+ * TODO: This method currently only handles ANSI paths and does not explicitly
+ * handle long path names.
+ */
+char* oe_syscall_path_to_win(const char* path)
 {
-    char* wpath = NULL;
-    char* tmp_path = NULL;
-    size_t pathlen;
-    size_t fullpathlen;
-    size_t postlen;
-    size_t totallen;
+    char* outpath = NULL;
+    uint32_t outpath_length = 0;
 
-    if (!path || strnlen_s(path, OE_PATH_MAX) == OE_PATH_MAX)
-    {
-        _set_errno(OE_EINVAL);
-        goto done;
-    }
-    pathlen = strnlen_s(path, OE_PATH_MAX);
-
-    if (post && strnlen_s(post, OE_PATH_MAX) == OE_PATH_MAX)
-    {
-        _set_errno(OE_EINVAL);
-        goto done;
-    }
-    postlen = post ? strnlen_s(post, OE_PATH_MAX) : 0;
-
-    if (strcmp(path, POSIX_DEV_NULL) == 0)
-    {
-        // Just return "nul". On windows nul is the equivolent of /dev/null
-        // on Linux.
-        pathlen = strlen(WIN_DEV_NULL);
-        totallen = pathlen + 1;
-        wpath = (char*) calloc(totallen, sizeof(char));
-        if (!wpath)
-        {
-            _set_errno(OE_ENOMEM);
-            goto done;
-        }
-
-        sprintf_s(wpath, totallen, "%s", WIN_DEV_NULL);
-
-        goto done;
-    }
-
-    if (pathlen >=3 && path[0] == '/' && isalpha(path[1]) && path[2] == '/')
-    {
-        tmp_path = (char*) calloc(pathlen + 1, sizeof(char));
-        if (!tmp_path)
-        {
-            _set_errno(OE_ENOMEM);
-            goto done;
-        }
-
-        if (oe_memcpy_s(tmp_path, pathlen + 1, path, pathlen) != OE_OK)
-        {
-            _set_errno(OE_ENOMEM);
-            goto done;
-        }
-
-        tmp_path[0] = tmp_path[1];
-        tmp_path[1] = ':';
-
-        path = tmp_path;
-    }
-
-    wpath = (char*) calloc(MAX_PATH, sizeof(char));
-    if (!wpath)
-    {
-        _set_errno(OE_ENOMEM);
-        goto done;
-    }
-
-    fullpathlen = GetFullPathNameA(path, 0, wpath, NULL);
-    if (fullpathlen == 0)
-    {
-        _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
-    }
-
-    // fullpathlen includes the null at the end.
-    totallen = fullpathlen + postlen;
-    if (totallen > MAX_PATH)
+    if (!path)
     {
         _set_errno(OE_EINVAL);
         goto done;
     }
 
-    if((wpath = (char*) _expand(wpath, totallen)) == NULL)
+    outpath = _dev_null_to_nul(path);
+    if (outpath)
+        return outpath;
+
+    bool is_volume_rooted = _is_oe_syscall_path_volume_rooted(path);
+    errno_t err = _get_full_path_name(path, &outpath_length, &outpath);
+    if (err)
     {
-        _set_errno(_winerr_to_errno(GetLastError()));
+        _set_errno(err);
         goto done;
     }
 
-    if(GetFullPathNameA(path, totallen, wpath, NULL) != fullpathlen - 1)
-    {
-        _set_errno(_winerr_to_errno(GetLastError()));
-        goto done;
-    }
-    if (postlen != 0)
-    {
-        if (oe_memcpy_s(wpath + fullpathlen - 1, totallen - fullpathlen + 1,
-                    post, postlen) != OE_OK)
-        {
-            _set_errno(OE_ENOMEM);
-            goto done;
-        }
-    }
+    if (is_volume_rooted)
+        _fix_oe_syscall_volume_root(outpath, outpath_length);
 
 done:
-    if (tmp_path)
-    {
-        free(tmp_path);
-    }
-    return wpath;
+    return outpath;
 }
 
 // windows is much poorer in file bits than unix, but it reencoded the
@@ -608,15 +602,14 @@ static unsigned _win_stat_mode_to_posix(unsigned winstat)
 #define NUM_ACES 4
 
 static HANDLE _createfile(
-        char*       FileName,
-        DWORD       dwDesiredAccess,
-        DWORD       dwShareMode,
-        DWORD       dwCreationDisposition,
-        DWORD       dwFlagsAndAttributes,
-        HANDLE      hTemplateFile,
-        oe_mode_t   rwx)
+    char* FileName,
+    DWORD dwDesiredAccess,
+    DWORD dwShareMode,
+    DWORD dwCreationDisposition,
+    DWORD dwFlagsAndAttributes,
+    HANDLE hTemplateFile,
+    oe_mode_t rwx)
 {
-
     HANDLE ret = INVALID_HANDLE_VALUE;
 
     PSECURITY_DESCRIPTOR pSD = NULL;
@@ -628,7 +621,7 @@ static HANDLE _createfile(
 
     HANDLE hToken;
     TOKEN_PRIMARY_GROUP* GroupInfo;
-    TOKEN_OWNER *OwnerInfo;
+    TOKEN_OWNER* OwnerInfo;
 
     oe_mode_t win_modes[] = {GENERIC_EXECUTE, GENERIC_WRITE, GENERIC_READ};
     oe_mode_t current_mode = 01; // bit zero set to 1, which is S_IXOTH
@@ -647,18 +640,19 @@ static HANDLE _createfile(
             {
                 denies[i] |= win_modes[j];
             }
-            // Shift the mode bit being examined to the next one in the order X, W, R.
+            // Shift the mode bit being examined to the next one in the order X,
+            // W, R.
             current_mode <<= 1;
         }
-        // Shift the group of mode bits being examined to the next one in the order OTH, GRP, USR
-        // And also reset the value of current bit to 1.
+        // Shift the group of mode bits being examined to the next one in the
+        // order OTH, GRP, USR And also reset the value of current bit to 1.
     }
 
     // In this case it needs two deny ACEs, which is impossible.
     // GRP has some permission USR dones not have.
     if ((denies[0] & grants[1]) &&
-            // OTH has some permission GRP does not have.
-            (denies[1] & grants[2]))
+        // OTH has some permission GRP does not have.
+        (denies[1] & grants[2]))
     {
         printf("This mode %04o is not supported on Windows.", rwx);
         _set_errno(GetLastError());
@@ -690,21 +684,21 @@ static HANDLE _createfile(
     }
 
     // Call GetTokenInformation to get the buffer size.
-    if(!GetTokenInformation(hToken, TokenOwner, NULL, 0, &dwSize))
+    if (!GetTokenInformation(hToken, TokenOwner, NULL, 0, &dwSize))
     {
         dwRes = GetLastError();
-        if(dwRes != ERROR_INSUFFICIENT_BUFFER) {
+        if (dwRes != ERROR_INSUFFICIENT_BUFFER)
+        {
             _set_errno(GetLastError());
             goto done;
         }
     }
 
     // Allocate the buffer.
-    OwnerInfo = (TOKEN_OWNER *) calloc(dwSize, sizeof(char));
+    OwnerInfo = (TOKEN_OWNER*)calloc(dwSize, sizeof(char));
 
     // Call GetTokenInformation again to get the group information.
-    if(!GetTokenInformation(hToken, TokenOwner, OwnerInfo,
-                            dwSize, &dwSize))
+    if (!GetTokenInformation(hToken, TokenOwner, OwnerInfo, dwSize, &dwSize))
     {
         _set_errno(GetLastError());
         goto done;
@@ -713,21 +707,22 @@ static HANDLE _createfile(
     psid[0] = OwnerInfo->Owner;
 
     // Call GetTokenInformation to get the buffer size.
-    if(!GetTokenInformation(hToken, TokenPrimaryGroup, NULL, 0, &dwSize))
+    if (!GetTokenInformation(hToken, TokenPrimaryGroup, NULL, 0, &dwSize))
     {
         dwRes = GetLastError();
-        if(dwRes != ERROR_INSUFFICIENT_BUFFER) {
+        if (dwRes != ERROR_INSUFFICIENT_BUFFER)
+        {
             _set_errno(GetLastError());
             goto done;
         }
     }
 
     // Allocate the buffer.
-    GroupInfo = (TOKEN_PRIMARY_GROUP *) calloc(dwSize, sizeof(char));
+    GroupInfo = (TOKEN_PRIMARY_GROUP*)calloc(dwSize, sizeof(char));
 
     // Call GetTokenInformation again to get the group information.
-    if(!GetTokenInformation(hToken, TokenPrimaryGroup, GroupInfo,
-                            dwSize, &dwSize))
+    if (!GetTokenInformation(
+            hToken, TokenPrimaryGroup, GroupInfo, dwSize, &dwSize))
     {
         _set_errno(GetLastError());
         goto done;
@@ -736,11 +731,18 @@ static HANDLE _createfile(
     psid[1] = GroupInfo->PrimaryGroup;
 
     // Create a SID for the Everyone group.
-    if (!AllocateAndInitializeSid(&SIDAuthWorld, 1,
-                     SECURITY_WORLD_RID,
-                     0,
-                     0, 0, 0, 0, 0, 0,
-                     &psid[2]))
+    if (!AllocateAndInitializeSid(
+            &SIDAuthWorld,
+            1,
+            SECURITY_WORLD_RID,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+            &psid[2]))
     {
         _set_errno(GetLastError());
         goto done;
@@ -763,7 +765,7 @@ static HANDLE _createfile(
             ea[num_aces].grfInheritance = NO_INHERITANCE;
             ea[num_aces].Trustee.TrusteeForm = TRUSTEE_IS_SID;
             ea[num_aces].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-            ea[num_aces].Trustee.ptstrName = (LPTSTR) psid[i];
+            ea[num_aces].Trustee.ptstrName = (LPTSTR)psid[i];
 
             num_aces++;
         }
@@ -775,18 +777,14 @@ static HANDLE _createfile(
             ea[num_aces].grfInheritance = NO_INHERITANCE;
             ea[num_aces].Trustee.TrusteeForm = TRUSTEE_IS_SID;
             ea[num_aces].Trustee.TrusteeType = TRUSTEE_IS_WELL_KNOWN_GROUP;
-            ea[num_aces].Trustee.ptstrName = (LPTSTR) psid[i];
+            ea[num_aces].Trustee.ptstrName = (LPTSTR)psid[i];
 
             num_aces++;
         }
-
     }
 
     // Write the effective ea to DACL.
-    if (ERROR_SUCCESS != SetEntriesInAcl(num_aces,
-                                         ea,
-                                         NULL,
-                                         &pACL))
+    if (ERROR_SUCCESS != SetEntriesInAcl(num_aces, ea, NULL, &pACL))
     {
         _set_errno(GetLastError());
         goto done;
@@ -797,20 +795,20 @@ static HANDLE _createfile(
     // It is much easy to let Windows finish the creation then apply the PACL.
     if (dwDesiredAccess == FILE_DIRECTORY_FILE)
     {
-        if (!CreateDirectoryA((LPTSTR) FileName, NULL))
+        if (!CreateDirectoryA((LPTSTR)FileName, NULL))
         {
             _set_errno(_winerr_to_errno(GetLastError()));
             goto done;
         }
 
         DWORD dwRes = SetNamedSecurityInfo(
-                (LPTSTR) FileName,          // name of the object
-                SE_FILE_OBJECT,             // type of object
-                DACL_SECURITY_INFORMATION,  // change only the object's DACL
-                NULL,                       // do not change owner
-                NULL,                       // do not change group
-                pACL,                       // DACL specified
-                NULL);                      // do not change SACL
+            (LPTSTR)FileName,          // name of the object
+            SE_FILE_OBJECT,            // type of object
+            DACL_SECURITY_INFORMATION, // change only the object's DACL
+            NULL,                      // do not change owner
+            NULL,                      // do not change group
+            pACL,                      // DACL specified
+            NULL);                     // do not change SACL
 
         if (dwRes != ERROR_SUCCESS)
         {
@@ -818,37 +816,38 @@ static HANDLE _createfile(
             goto done;
         }
 
-        ret = (HANDLE) 0;
+        ret = (HANDLE)0;
         goto done;
     }
 
     // Initialize a security descriptor.
-    pSD = (PSECURITY_DESCRIPTOR) calloc(SECURITY_DESCRIPTOR_MIN_LENGTH, sizeof(char));
+    pSD = (PSECURITY_DESCRIPTOR)calloc(
+        SECURITY_DESCRIPTOR_MIN_LENGTH, sizeof(char));
     if (NULL == pSD)
     {
         _set_errno(GetLastError());
         goto done;
     }
 
-    if (!InitializeSecurityDescriptor(pSD,
-            SECURITY_DESCRIPTOR_REVISION))
+    if (!InitializeSecurityDescriptor(pSD, SECURITY_DESCRIPTOR_REVISION))
     {
         _set_errno(GetLastError());
         goto done;
     }
 
     // Add the ACL to the security descriptor.
-    if (!SetSecurityDescriptorDacl(pSD,
-            TRUE,     // bDaclPresent flag
+    if (!SetSecurityDescriptorDacl(
+            pSD,
+            TRUE, // bDaclPresent flag
             pACL,
-            FALSE))   // not a default DACL
+            FALSE)) // not a default DACL
     {
         _set_errno(GetLastError());
         goto done;
     }
 
     // Initialize a security attributes structure.
-    sa.nLength = sizeof (SECURITY_ATTRIBUTES);
+    sa.nLength = sizeof(SECURITY_ATTRIBUTES);
     sa.lpSecurityDescriptor = pSD;
     sa.bInheritHandle = FALSE;
 
@@ -859,10 +858,10 @@ static HANDLE _createfile(
     if (dwDesiredAccess & FILE_DIRECTORY_FILE)
     {
         /*
-         * It is not widely known but CreateFileW can be used to create directories!
-         * It requires the specification of both FILE_FLAG_BACKUP_SEMANTICS and
-         * FILE_FLAG_POSIX_SEMANTICS. It also requires that dwFlagsAndAttributes has
-         * FILE_ATTRIBUTE_DIRECTORY set.
+         * It is not widely known but CreateFileW can be used to create
+         * directories! It requires the specification of both
+         * FILE_FLAG_BACKUP_SEMANTICS and FILE_FLAG_POSIX_SEMANTICS. It also
+         * requires that dwFlagsAndAttributes has FILE_ATTRIBUTE_DIRECTORY set.
          */
         CreateFlags |= FILE_FLAG_POSIX_SEMANTICS;
         dwFlagsAndAttributes |= FILE_ATTRIBUTE_DIRECTORY;
@@ -878,16 +877,17 @@ static HANDLE _createfile(
     }
 
     ret = CreateFile(
-            (LPTSTR) FileName,
-            dwDesiredAccess,
-            dwShareMode,
-            &sa,
-            dwCreationDisposition,
-            dwFlagsAndAttributes | CreateFlags,
-            hTemplateFile);
+        (LPTSTR)FileName,
+        dwDesiredAccess,
+        dwShareMode,
+        &sa,
+        dwCreationDisposition,
+        dwFlagsAndAttributes | CreateFlags,
+        hTemplateFile);
 
     // Check GetLastError for CreateFile error code.
-    if (ret == INVALID_HANDLE_VALUE) {
+    if (ret == INVALID_HANDLE_VALUE)
+    {
         _set_errno(GetLastError());
         goto done;
     }
@@ -935,7 +935,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t) GetStdHandle(STD_INPUT_HANDLE);
+        ret = (oe_host_fd_t)GetStdHandle(STD_INPUT_HANDLE);
         goto done;
     }
     else if (strcmp(pathname, "/dev/stdout") == 0)
@@ -946,7 +946,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t) GetStdHandle(STD_OUTPUT_HANDLE);
+        ret = (oe_host_fd_t)GetStdHandle(STD_OUTPUT_HANDLE);
         goto done;
     }
     else if (strcmp(pathname, "/dev/stderr") == 0)
@@ -957,7 +957,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t) GetStdHandle(STD_ERROR_HANDLE);
+        ret = (oe_host_fd_t)GetStdHandle(STD_ERROR_HANDLE);
         goto done;
     }
     else
@@ -966,7 +966,7 @@ oe_host_fd_t oe_syscall_open_ocall(
         DWORD share_mode = 0;
         DWORD create_dispos = OPEN_EXISTING;
         DWORD file_flags = (FILE_ATTRIBUTE_NORMAL | FILE_FLAG_POSIX_SEMANTICS);
-        wpathname = oe_syscall_path_to_win(pathname, NULL);
+        wpathname = oe_syscall_path_to_win(pathname);
 
         if ((flags & OE_O_DIRECTORY) != 0)
         {
@@ -1064,7 +1064,7 @@ oe_host_fd_t oe_syscall_open_ocall(
             goto done;
         }
 
-        ret = (oe_host_fd_t) h;
+        ret = (oe_host_fd_t)h;
     }
 
 done:
@@ -1080,7 +1080,7 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
     ssize_t ret = -1;
     DWORD bytes_returned = 0;
 
-    HANDLE handle = (HANDLE) fd;
+    HANDLE handle = (HANDLE)fd;
 
     // Convert fd 0, 1, 2 as needed
     switch (fd)
@@ -1098,13 +1098,13 @@ ssize_t oe_syscall_read_ocall(oe_host_fd_t fd, void* buf, size_t count)
             break;
     }
 
-    if (!ReadFile(handle, buf, (DWORD) count, &bytes_returned, NULL))
+    if (!ReadFile(handle, buf, (DWORD)count, &bytes_returned, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
-    ret = (ssize_t) bytes_returned;
+    ret = (ssize_t)bytes_returned;
 
 done:
     return ret;
@@ -1115,7 +1115,7 @@ ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
     ssize_t ret = -1;
     DWORD bytes_written = 0;
 
-    HANDLE handle = (HANDLE) fd;
+    HANDLE handle = (HANDLE)fd;
 
     // Convert fd 0, 1, 2 as needed
     switch (fd)
@@ -1137,13 +1137,13 @@ ssize_t oe_syscall_write_ocall(oe_host_fd_t fd, const void* buf, size_t count)
             break;
     }
 
-    if (!WriteFile(handle, buf, (DWORD) count, &bytes_written, NULL))
+    if (!WriteFile(handle, buf, (DWORD)count, &bytes_written, NULL))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
     }
 
-    ret = (ssize_t) bytes_written;
+    ret = (ssize_t)bytes_written;
 
 done:
     return ret;
@@ -1155,7 +1155,7 @@ ssize_t oe_syscall_readv_ocall(
     int iovcnt,
     size_t iov_buf_size)
 {
-    struct oe_iovec* iov = (struct oe_iovec*) iov_buf;
+    struct oe_iovec* iov = (struct oe_iovec*)iov_buf;
     ssize_t ret = -1;
     ssize_t size_read;
 
@@ -1179,7 +1179,7 @@ ssize_t oe_syscall_readv_ocall(
         size_t count;
 
         buf = &iov[iovcnt];
-        count = iov_buf_size - ((size_t) iovcnt * sizeof(struct oe_iovec));
+        count = iov_buf_size - ((size_t)iovcnt * sizeof(struct oe_iovec));
 
         size_read = oe_syscall_read_ocall(fd, buf, count);
     }
@@ -1198,7 +1198,7 @@ ssize_t oe_syscall_writev_ocall(
 {
     ssize_t ret = -1;
     ssize_t size_written;
-    struct oe_iovec* iov = (struct oe_iovec*) iov_buf;
+    struct oe_iovec* iov = (struct oe_iovec*)iov_buf;
 
     errno = 0;
 
@@ -1220,7 +1220,7 @@ ssize_t oe_syscall_writev_ocall(
         size_t count;
 
         buf = &iov[iovcnt];
-        count = iov_buf_size - ((size_t) iovcnt * sizeof(struct oe_iovec));
+        count = iov_buf_size - ((size_t)iovcnt * sizeof(struct oe_iovec));
 
         size_written = oe_syscall_write_ocall(fd, buf, count);
     }
@@ -1234,15 +1234,15 @@ done:
 oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
 {
     OE_STATIC_ASSERT(
-            SEEK_SET == FILE_BEGIN &&
-            SEEK_CUR == FILE_CURRENT &&
-            SEEK_END == FILE_END);
+        SEEK_SET == FILE_BEGIN && SEEK_CUR == FILE_CURRENT &&
+        SEEK_END == FILE_END);
 
     ssize_t ret = -1;
 
     LARGE_INTEGER const origin_pos = {0};
     LARGE_INTEGER saved_pos;
-    if (!SetFilePointerEx((HANDLE) fd, origin_pos, (PLARGE_INTEGER) &saved_pos, FILE_CURRENT))
+    if (!SetFilePointerEx(
+            (HANDLE)fd, origin_pos, (PLARGE_INTEGER)&saved_pos, FILE_CURRENT))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1251,7 +1251,7 @@ oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
     LARGE_INTEGER new_offset = {0};
     new_offset.QuadPart = offset;
     if (!SetFilePointerEx(
-            (HANDLE) fd, new_offset, (PLARGE_INTEGER) &new_offset, whence))
+            (HANDLE)fd, new_offset, (PLARGE_INTEGER)&new_offset, whence))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1259,12 +1259,12 @@ oe_off_t oe_syscall_lseek_ocall(oe_host_fd_t fd, oe_off_t offset, int whence)
 
     if (new_offset.QuadPart > LONG_MAX)
     {
-        SetFilePointerEx((HANDLE) fd, saved_pos, NULL, FILE_BEGIN);
+        SetFilePointerEx((HANDLE)fd, saved_pos, NULL, FILE_BEGIN);
         _set_errno(EINVAL);
         goto done;
     }
 
-    ret = (oe_off_t) new_offset.QuadPart;
+    ret = (oe_off_t)new_offset.QuadPart;
 
 done:
     return ret;
@@ -1273,7 +1273,7 @@ done:
 int oe_syscall_close_ocall(oe_host_fd_t fd)
 {
     int ret = -1;
-    HANDLE handle = (HANDLE) fd;
+    HANDLE handle = (HANDLE)fd;
 
     // Convert fd 0, 1, 2 as needed
     switch (fd)
@@ -1317,7 +1317,7 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
 {
     oe_host_fd_t ret = -1;
     // suppose fd is a handle.
-    HANDLE oldhandle = (HANDLE) fd;
+    HANDLE oldhandle = (HANDLE)fd;
 
     // If fd is a stdin/out/err, convert it to the corresponding HANDLE.
     switch (fd)
@@ -1346,13 +1346,14 @@ oe_host_fd_t oe_syscall_dup_ocall(oe_host_fd_t fd)
     // While GetLastError returns NO_ERROR, it is case 1.
     if (file_type != FILE_TYPE_UNKNOWN || GetLastError() == NO_ERROR)
     {
-        if (DuplicateHandle(GetCurrentProcess(),
-                    oldhandle,
-                    GetCurrentProcess(),
-                    (HANDLE*) &ret,
-                    0,
-                    FALSE,
-                    DUPLICATE_SAME_ACCESS))
+        if (DuplicateHandle(
+                GetCurrentProcess(),
+                oldhandle,
+                GetCurrentProcess(),
+                (HANDLE*)&ret,
+                0,
+                FALSE,
+                DUPLICATE_SAME_ACCESS))
         {
             _set_errno(0);
         }
@@ -1383,35 +1384,54 @@ uint64_t oe_syscall_opendir_ocall(const char* pathname)
 {
     struct WIN_DIR_DATA* pdir = NULL;
 
-    pdir = (struct WIN_DIR_DATA*) calloc(1, sizeof(struct WIN_DIR_DATA));
+    pdir = (struct WIN_DIR_DATA*)calloc(1, sizeof(struct WIN_DIR_DATA));
     if (!pdir)
     {
         _set_errno(OE_ENOMEM);
         goto done;
     }
 
-    char* wpathname = oe_syscall_path_to_win(pathname, "/*");
-    pdir->hFind = FindFirstFileA(wpathname, &pdir->FindFileData);
+    char* wpathname = oe_syscall_path_to_win(pathname);
+    uint32_t wpathname_length = strnlen(wpathname, MAX_PATH);
+
+    /* Allocate enough additional space for '\*' and null-terminator */
+    char* dir_search_path = (char*)malloc(wpathname_length + 3);
+    if (!dir_search_path)
+    {
+        _set_errno(OE_ENOMEM);
+        goto done;
+    }
+
+    if (!PathCombineA(dir_search_path, wpathname, "*"))
+    {
+        _set_errno(OE_EINVAL);
+        goto done;
+    }
+
+    pdir->hFind = FindFirstFileA(dir_search_path, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
     {
-        free(wpathname);
+        free(dir_search_path);
         free(pdir);
         pdir = NULL;
         goto done;
     }
 
     pdir->dir_offs = 0;
-    pdir->pdirpath = wpathname;
+    pdir->pdirpath = dir_search_path;
 
 done:
-    return (uint64_t) pdir;
+    if (wpathname)
+        free(wpathname);
+
+    return (uint64_t)pdir;
 }
 
 int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
 {
     int ret = -1;
 
-    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*) dirp;
+    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
     int nlen = -1;
 
     _set_errno(0);
@@ -1423,9 +1443,10 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
         goto done;
     }
 
-    // oe_syscall_opendir_ocall already called FindFirstFileW which returned the '.' entry.
-    // To preserve the readdir semantics, if oe_syscall_readdir_ocall is passed a valid dirp
-    // with the initial offset of 0, we return '.' directly instead of calling FindNextFileW.
+    // oe_syscall_opendir_ocall already called FindFirstFileW which returned the
+    // '.' entry. To preserve the readdir semantics, if oe_syscall_readdir_ocall
+    // is passed a valid dirp with the initial offset of 0, we return '.'
+    // directly instead of calling FindNextFileW.
     if (pdir->dir_offs == 0)
     {
         entry->d_off = pdir->dir_offs++;
@@ -1455,9 +1476,11 @@ int oe_syscall_readdir_ocall(uint64_t dirp, struct oe_dirent* entry)
     }
 
     memset(entry->d_name, 0, OE_NAME_MAX + 1);
-    if (oe_memcpy_s(entry->d_name, OE_NAME_MAX + 1,
-                pdir->FindFileData.cFileName,
-                strnlen_s(pdir->FindFileData.cFileName, MAX_PATH)) != OE_OK)
+    if (oe_memcpy_s(
+            entry->d_name,
+            OE_NAME_MAX + 1,
+            pdir->FindFileData.cFileName,
+            strnlen_s(pdir->FindFileData.cFileName, MAX_PATH)) != OE_OK)
     {
         _set_errno(OE_EINVAL);
         goto done;
@@ -1489,7 +1512,7 @@ done:
 void oe_syscall_rewinddir_ocall(uint64_t dirp)
 {
     DWORD err = 0;
-    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*) dirp;
+    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
     char* wpathname = pdir->pdirpath;
 
     if (!FindClose(pdir->hFind))
@@ -1498,7 +1521,7 @@ void oe_syscall_rewinddir_ocall(uint64_t dirp)
         goto done;
     }
 
-    memset(&pdir->FindFileData, 0, (size_t) sizeof(pdir->FindFileData));
+    memset(&pdir->FindFileData, 0, (size_t)sizeof(pdir->FindFileData));
 
     pdir->hFind = FindFirstFileA(wpathname, &pdir->FindFileData);
     if (pdir->hFind == INVALID_HANDLE_VALUE)
@@ -1515,7 +1538,7 @@ done:
 int oe_syscall_closedir_ocall(uint64_t dirp)
 {
     int ret = -1;
-    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*) dirp;
+    struct WIN_DIR_DATA* pdir = (struct WIN_DIR_DATA*)dirp;
 
     if (!dirp)
     {
@@ -1539,7 +1562,7 @@ done:
 int oe_syscall_stat_ocall(const char* pathname, struct oe_stat* buf)
 {
     int ret = -1;
-    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname);
     struct _stat64 winstat = {0};
 
     ret = _stat64(wpathname, &winstat);
@@ -1580,10 +1603,10 @@ done:
 int oe_syscall_access_ocall(const char* pathname, int mode)
 {
     int ret = -1;
-    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname);
 
     HANDLE hToken = NULL;
-    TOKEN_OWNER *OwnerInfo = NULL;
+    TOKEN_OWNER* OwnerInfo = NULL;
     TRUSTEE trustee;
     ACL* pACL = NULL;
     SECURITY_DESCRIPTOR* pSD = NULL;
@@ -1596,21 +1619,21 @@ int oe_syscall_access_ocall(const char* pathname, int mode)
     }
 
     // Call GetTokenInformation to get the buffer size.
-    if(!GetTokenInformation(hToken, TokenOwner, NULL, 0, &dwSize))
+    if (!GetTokenInformation(hToken, TokenOwner, NULL, 0, &dwSize))
     {
         dwRes = GetLastError();
-        if(dwRes != ERROR_INSUFFICIENT_BUFFER) {
+        if (dwRes != ERROR_INSUFFICIENT_BUFFER)
+        {
             _set_errno(GetLastError());
             goto done;
         }
     }
 
     // Allocate the buffer.
-    OwnerInfo = (TOKEN_OWNER *) calloc(dwSize, sizeof(char));
+    OwnerInfo = (TOKEN_OWNER*)calloc(dwSize, sizeof(char));
 
     // Call GetTokenInformation again to get the group information.
-    if(!GetTokenInformation(hToken, TokenOwner, OwnerInfo,
-                            dwSize, &dwSize))
+    if (!GetTokenInformation(hToken, TokenOwner, OwnerInfo, dwSize, &dwSize))
     {
         _set_errno(GetLastError());
         goto done;
@@ -1620,55 +1643,46 @@ int oe_syscall_access_ocall(const char* pathname, int mode)
 
     // Obtain the file ACL
     dwSize = 0;
-    if (!GetFileSecurity(wpathname,
-            DACL_SECURITY_INFORMATION,
-            NULL,
-            0,
-            &dwSize))
+    if (!GetFileSecurity(
+            wpathname, DACL_SECURITY_INFORMATION, NULL, 0, &dwSize))
     {
         _set_errno(GetLastError());
         goto done;
     }
 
-    pSD = (SECURITY_DESCRIPTOR*) calloc(dwSize, sizeof(char));
+    pSD = (SECURITY_DESCRIPTOR*)calloc(dwSize, sizeof(char));
     if (!pSD)
     {
         _set_errno(GetLastError());
         goto done;
     }
     DWORD nSD = dwSize;
-    if (!GetFileSecurity(wpathname,
-            DACL_SECURITY_INFORMATION,
-            pSD,
-            nSD,
-            &dwSize))
+    if (!GetFileSecurity(
+            wpathname, DACL_SECURITY_INFORMATION, pSD, nSD, &dwSize))
     {
         _set_errno(GetLastError());
         goto done;
     }
 
     BOOL bDaclPresent, bDefaulted;
-    GetSecurityDescriptorDacl(pSD,
-            &bDaclPresent,
-            &pACL,
-            &bDefaulted);
+    GetSecurityDescriptorDacl(pSD, &bDaclPresent, &pACL, &bDefaulted);
 
     // Obtain ACCESS_MASK from TRUSTEE and ACL
-    ACCESS_MASK     accessMask;
+    ACCESS_MASK accessMask;
     GetEffectiveRightsFromAcl(pACL, &trustee, &accessMask);
 
-    if  ((mode & OE_R_OR) &&
-            ((accessMask & STANDARD_RIGHTS_READ) != STANDARD_RIGHTS_READ))
+    if ((mode & OE_R_OR) &&
+        ((accessMask & STANDARD_RIGHTS_READ) != STANDARD_RIGHTS_READ))
     {
         goto done;
     }
-    if  ((mode & OE_W_OR) &&
-            ((accessMask & STANDARD_RIGHTS_WRITE) != STANDARD_RIGHTS_WRITE))
+    if ((mode & OE_W_OR) &&
+        ((accessMask & STANDARD_RIGHTS_WRITE) != STANDARD_RIGHTS_WRITE))
     {
         goto done;
     }
-    if  ((mode & OE_X_OR) &&
-            ((accessMask & STANDARD_RIGHTS_EXECUTE) != STANDARD_RIGHTS_EXECUTE))
+    if ((mode & OE_X_OR) &&
+        ((accessMask & STANDARD_RIGHTS_EXECUTE) != STANDARD_RIGHTS_EXECUTE))
     {
         goto done;
     }
@@ -1698,8 +1712,8 @@ done:
 int oe_syscall_link_ocall(const char* oldpath, const char* newpath)
 {
     int ret = -1;
-    char* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
-    char* newwpath = oe_syscall_path_to_win(newpath, NULL);
+    char* oldwpath = oe_syscall_path_to_win(oldpath);
+    char* newwpath = oe_syscall_path_to_win(newpath);
 
     if (!CreateHardLink(newwpath, oldwpath, NULL))
     {
@@ -1724,9 +1738,9 @@ done:
 int oe_syscall_unlink_ocall(const char* pathname)
 {
     int ret = -1;
-    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname);
 
-    if(!DeleteFile(wpathname))
+    if (!DeleteFile(wpathname))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1745,8 +1759,8 @@ done:
 int oe_syscall_rename_ocall(const char* oldpath, const char* newpath)
 {
     int ret = -1;
-    char* oldwpath = oe_syscall_path_to_win(oldpath, NULL);
-    char* newwpath = oe_syscall_path_to_win(newpath, NULL);
+    char* oldwpath = oe_syscall_path_to_win(oldpath);
+    char* newwpath = oe_syscall_path_to_win(newpath);
 
     ret = rename(oldwpath, newwpath);
     if (ret < 0)
@@ -1772,7 +1786,7 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
 {
     int ret = -1;
     LARGE_INTEGER new_offset = {0};
-    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname);
 
     HANDLE h = CreateFile(
         wpathname,
@@ -1789,8 +1803,7 @@ int oe_syscall_truncate_ocall(const char* pathname, oe_off_t length)
     }
 
     new_offset.QuadPart = length;
-    if (!SetFilePointerEx(
-            h, new_offset, NULL, FILE_BEGIN))
+    if (!SetFilePointerEx(h, new_offset, NULL, FILE_BEGIN))
     {
         _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -1820,16 +1833,9 @@ done:
 int oe_syscall_mkdir_ocall(const char* pathname, oe_mode_t mode)
 {
     int ret = -1;
-    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname);
 
-    HANDLE h = _createfile(
-            wpathname,
-            FILE_DIRECTORY_FILE,
-            0,
-            0,
-            0,
-            NULL,
-            mode);
+    HANDLE h = _createfile(wpathname, FILE_DIRECTORY_FILE, 0, 0, 0, NULL, mode);
     if (h == INVALID_HANDLE_VALUE)
     {
         _set_errno(_winerr_to_errno(GetLastError()));
@@ -1849,7 +1855,7 @@ done:
 int oe_syscall_rmdir_ocall(const char* pathname)
 {
     int ret = -1;
-    char* wpathname = oe_syscall_path_to_win(pathname, NULL);
+    char* wpathname = oe_syscall_path_to_win(pathname);
 
     if (!RemoveDirectory(wpathname))
     {
@@ -1890,12 +1896,12 @@ oe_host_fd_t _make_socket_fd(SOCKET sock)
     if (sock != INVALID_SOCKET)
     {
         oe_socket_fd_t* socket_fd =
-            (oe_socket_fd_t*) malloc(sizeof(oe_socket_fd_t));
+            (oe_socket_fd_t*)malloc(sizeof(oe_socket_fd_t));
         if (socket_fd)
         {
             socket_fd->magic = OE_SOCKET_FD_MAGIC;
             socket_fd->socket = sock;
-            fd = (oe_host_fd_t) socket_fd;
+            fd = (oe_host_fd_t)socket_fd;
         }
     }
     return fd;
@@ -1903,7 +1909,7 @@ oe_host_fd_t _make_socket_fd(SOCKET sock)
 
 SOCKET _get_socket(oe_host_fd_t fd)
 {
-    oe_socket_fd_t* socket_fd = (oe_socket_fd_t*) fd;
+    oe_socket_fd_t* socket_fd = (oe_socket_fd_t*)fd;
     if (socket_fd && socket_fd->magic == OE_SOCKET_FD_MAGIC)
         return socket_fd->socket;
     return INVALID_SOCKET;
@@ -1911,7 +1917,7 @@ SOCKET _get_socket(oe_host_fd_t fd)
 
 static oe_host_fd_t _dup_socket(oe_host_fd_t oldfd)
 {
-    oe_socket_fd_t* old_socket_fd = (oe_socket_fd_t*) oldfd;
+    oe_socket_fd_t* old_socket_fd = (oe_socket_fd_t*)oldfd;
     if (old_socket_fd && old_socket_fd->magic == OE_SOCKET_FD_MAGIC)
     {
         // Duplicate socket
@@ -1948,7 +1954,7 @@ static int _wsa_startup()
     int ret = 0;
 
     if (oe_atomic_compare_and_swap(
-            (volatile int64_t*) &wsa_init_done, (int64_t) 0, (int64_t) 1))
+            (volatile int64_t*)&wsa_init_done, (int64_t)0, (int64_t)1))
     {
         ret = WSAStartup(2, &wsaData);
         if (ret != 0)
@@ -1999,7 +2005,7 @@ int oe_syscall_connect_ocall(
     oe_socklen_t addrlen)
 {
     int ret = connect(
-        _get_socket(sockfd), (const struct sockaddr*) addr, (int) addrlen);
+        _get_socket(sockfd), (const struct sockaddr*)addr, (int)addrlen);
     if (ret != 0)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -2014,10 +2020,10 @@ oe_host_fd_t oe_syscall_accept_ocall(
     oe_socklen_t addrlen_in,
     oe_socklen_t* addrlen_out)
 {
-    int addrlen = (int) addrlen_in;
+    int addrlen = (int)addrlen_in;
     SOCKET conn_socket = accept(
         _get_socket(sockfd),
-        (struct sockaddr*) addr,
+        (struct sockaddr*)addr,
         addrlen_out ? &addrlen : NULL);
     if (conn_socket == INVALID_SOCKET)
     {
@@ -2037,7 +2043,7 @@ int oe_syscall_bind_ocall(
     const struct oe_sockaddr* addr,
     oe_socklen_t addrlen)
 {
-    int ret = bind(_get_socket(sockfd), (const struct sockaddr*) addr, addrlen);
+    int ret = bind(_get_socket(sockfd), (const struct sockaddr*)addr, addrlen);
     if (ret != 0)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -2118,7 +2124,7 @@ ssize_t oe_syscall_recv_ocall(
     ssize_t ret;
     _set_errno(0);
 
-    ret = recv(_get_socket(sockfd), (char*) buf, (int) len, flags);
+    ret = recv(_get_socket(sockfd), (char*)buf, (int)len, flags);
     if (ret == SOCKET_ERROR)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -2141,11 +2147,11 @@ ssize_t oe_syscall_recvfrom_ocall(
 
     ret = recvfrom(
         _get_socket(sockfd),
-        (char*) buf,
-        (int) len,
+        (char*)buf,
+        (int)len,
         flags,
-        (struct sockaddr*) src_addr,
-        (int*) &addrlen_in);
+        (struct sockaddr*)src_addr,
+        (int*)&addrlen_in);
     if (ret == SOCKET_ERROR)
     {
         _set_errno(_winsockerr_to_errno(WSAGetLastError()));
@@ -2193,7 +2199,7 @@ ssize_t oe_syscall_sendto_ocall(
         buf,
         len,
         flags,
-        (struct sockaddr*) src_addr,
+        (struct sockaddr*)src_addr,
         addrlen);
     if (ret == SOCKET_ERROR)
     {
@@ -2254,7 +2260,7 @@ int oe_syscall_close_socket_ocall(oe_host_fd_t sockfd)
             _set_errno(_winsockerr_to_errno(WSAGetLastError()));
         }
 
-        free((oe_socket_fd_t*) sockfd);
+        free((oe_socket_fd_t*)sockfd);
     }
     return r;
 }
@@ -2476,12 +2482,12 @@ int oe_syscall_getaddrinfo_open_ocall(
     }
 
     ret =
-        getaddrinfo(node, service, (const struct addrinfo*) hints, &handle->res);
+        getaddrinfo(node, service, (const struct addrinfo*)hints, &handle->res);
     if (ret == 0)
     {
         handle->magic = GETADDRINFO_HANDLE_MAGIC;
         handle->next = handle->res;
-        *handle_out = (uint64_t) handle;
+        *handle_out = (uint64_t)handle;
         handle = NULL;
     }
     else
@@ -2532,7 +2538,7 @@ int oe_syscall_getaddrinfo_read_ocall(
 int oe_syscall_getaddrinfo_close_ocall(uint64_t handle_)
 {
     int ret = -1;
-    getaddrinfo_handle_t* handle = _cast_getaddrinfo_handle((void*) handle_);
+    getaddrinfo_handle_t* handle = _cast_getaddrinfo_handle((void*)handle_);
 
     _set_errno(0);
 
