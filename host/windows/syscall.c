@@ -356,6 +356,9 @@ __declspec(noreturn) static void _panic(
 // is char* since no "wopen" in Linux. Caller must make sure the input is
 // passed in correctly as ASCII encoding.
 
+#define POSIX_DEV_NULL "/dev/null"
+#define WIN_DEV_NULL "nul"
+
 char* oe_win_path_to_posix(const char* path)
 {
     char* enclave_path = NULL;
@@ -369,21 +372,21 @@ char* oe_win_path_to_posix(const char* path)
         goto done;
     }
 
-    if (_stricmp(path, "nul") == 0)
+    if (_stricmp(path, WIN_DEV_NULL) == 0)
     {
-        len = strlen("/dev/null") + 1;
+        len = strlen(POSIX_DEV_NULL) + 1;
         enclave_path = calloc(len, sizeof(char));
         if (!enclave_path)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
-        sprintf(enclave_path, "%s", "/dev/null");
+        sprintf_s(enclave_path, len, "%s", POSIX_DEV_NULL);
 
         goto done;
     }
 
-    enclave_path = (char*) calloc(MAX_PATH, sizeof(char));
+    enclave_path = (char*)calloc(MAX_PATH, sizeof(char));
     if (!enclave_path)
     {
         _set_errno(OE_ENOMEM);
@@ -403,7 +406,10 @@ char* oe_win_path_to_posix(const char* path)
         goto done;
     }
 
-    if(GetFullPathNameA(path, MAX_PATH, enclave_path, NULL) == 0)
+    // len includes the null at the end.
+    // The return value, which not includes null,
+    // is supposed to be len - 1,
+    if(GetFullPathNameA(path, len, enclave_path, NULL) != len - 1)
     {
          _set_errno(_winerr_to_errno(GetLastError()));
         goto done;
@@ -447,10 +453,14 @@ done:
 // Adds the string "post" to the resulting string end
 //
 // The string  must be freed
+
 char* oe_syscall_path_to_win(const char* path, const char* post)
 {
     char* wpath = NULL;
     char* current_dir = NULL;
+    size_t pathlen;
+    size_t postlen;
+    size_t totallen;
 
     if (!path || strnlen_s(path, OE_PATH_MAX) == OE_PATH_MAX)
     {
@@ -464,136 +474,104 @@ char* oe_syscall_path_to_win(const char* path, const char* post)
         goto done;
     }
 
-    if (strcmp(path, "/dev/null") == 0)
+    if (strcmp(path, POSIX_DEV_NULL) == 0)
     {
         // Just return "nul". On windows nul is the equivolent of /dev/null
         // on Linux.
-        wpath = calloc(strlen("nul") + 1, sizeof(char));
+        pathlen = strlen(WIN_DEV_NULL);
+        totallen = pathlen + 1;
+        wpath = calloc(totallen, sizeof(char));
         if (!wpath)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
-        sprintf(wpath, "nul");
+
+        sprintf_s(wpath,  totallen, "%s", WIN_DEV_NULL);
 
         goto done;
     }
 
-    size_t pathlen = strnlen_s(path, OE_PATH_MAX);
-    size_t postlen = post ? strnlen_s(post, OE_PATH_MAX) : 0;
-    size_t required_size;
-    size_t finished;
+    pathlen = strnlen_s(path, OE_PATH_MAX);
+    postlen = post ? strnlen_s(post, OE_PATH_MAX) : 0;
 
-    if (path[0] == '/')
+    if (pathlen >=3 && path[0] == '/' && isalpha(path[1]) && path[2] == '/')
     {
-        // /c/dir/file
-        if ((pathlen >=3 && path[0] == '/' && isalpha(path[1]) && path[2] == '/') ||
-                // /c only
-                (pathlen == 2 && path[0] =='/' && isalpha(path[1]) && path[2] == '\0'))
+        totallen = pathlen + postlen + 1;
+        if (totallen >= MAX_PATH)
         {
-            required_size = pathlen + postlen + 1;
-            wpath = calloc(required_size, sizeof(char));
-            if (!wpath)
-            {
-                _set_errno(OE_ENOMEM);
-                goto done;
-            }
-
-            if (oe_memcpy_s(wpath, required_size * sizeof(char), path,
-                        pathlen * sizeof(char)) != OE_OK)
-            {
-                _set_errno(OE_ENOMEM);
-                goto done;
-            }
-
-            finished = pathlen;
-
-            wpath[0] = wpath[1];
-            wpath[1] = ':';
-        }
-        else
-        {
-            // Absolute path needs drive letter
-            required_size = pathlen + postlen + 3;
-            wpath = calloc(required_size, sizeof(char));
-            if (!wpath)
-            {
-                _set_errno(OE_ENOMEM);
-                goto done;
-            }
-            if (oe_memcpy_s(wpath + 2, (required_size - 2) * sizeof(char), path,
-                        pathlen * sizeof(char)) != OE_OK)
-            {
-                _set_errno(OE_ENOMEM);
-                goto done;
-            }
-
-
-            // getdrive returns 1 for A:
-            int drive = _getdrive();
-            if (drive <= 0)
-            {
-                _set_errno(_winerr_to_errno(GetLastError()));
-                goto done;
-            }
-
-            wpath[0] = drive + 'a' - 1;
-            wpath[1] = ':';
-
-            finished = pathlen + 2;
-        }
-    }
-    else
-    {
-        // Relative path
-        char* current_dir = _getcwd(NULL, 0);
-        if (!current_dir)
-        {
-            _set_errno(OE_ENOMEM);
+            _set_errno(OE_EINVAL);
             goto done;
         }
-        size_t current_dir_len = strnlen_s(current_dir, OE_PATH_MAX);
-        required_size = pathlen + current_dir_len + postlen + 1;
-        wpath = calloc(required_size, sizeof(char));
+
+        wpath = (char*) calloc(totallen, sizeof(char));
         if (!wpath)
         {
             _set_errno(OE_ENOMEM);
             goto done;
         }
 
-        if (oe_memcpy_s(wpath, required_size * sizeof(char), current_dir,
-                    current_dir_len * sizeof(char)) != OE_OK)
+        if (oe_memcpy_s(wpath, totallen, path, pathlen) != OE_OK)
         {
-            _set_errno(OE_EINVAL);
+            _set_errno(OE_ENOMEM);
             goto done;
         }
-        if (oe_memcpy_s(wpath + current_dir_len, (pathlen + postlen + 1)
-                    * sizeof(char), path,
-                    pathlen * sizeof(char)) != OE_OK)
+        if (postlen != 0)
         {
-            _set_errno(OE_EINVAL);
-            goto done;
+            if (oe_memcpy_s(wpath + pathlen, totallen - pathlen, post,
+                    postlen) != OE_OK)
+            {
+                _set_errno(OE_ENOMEM);
+                goto done;
+            }
         }
 
-        finished = current_dir_len + pathlen;
+        wpath[0] = wpath[1];
+        wpath[1] = ':';
     }
-
-
-    if (postlen)
+    else
     {
-        if (oe_memcpy_s(wpath + finished, (required_size - finished) *
-                    sizeof(char), post, postlen * sizeof(char)) != OE_OK)
+        wpath = (char*) calloc(MAX_PATH, sizeof(char));
+        if (!wpath)
+        {
+            _set_errno(OE_ENOMEM);
+            goto done;
+        }
+
+        pathlen = GetFullPathNameA(path, 0, wpath, NULL);
+        if (pathlen == 0 || pathlen >= MAX_PATH)
+        {
+            _set_errno(_winerr_to_errno(GetLastError()));
+            goto done;
+        }
+
+        // pathlen includes the null at the end.
+        totallen = pathlen + postlen;
+        if (totallen >= MAX_PATH)
         {
             _set_errno(OE_EINVAL);
             goto done;
         }
-    }
 
-    for (int i = 0; i < required_size; i++)
-    {
-        if (wpath[i] == '/')
+        if((wpath = (char*) _expand(wpath, totallen)) == NULL)
         {
-            wpath[i] = '\\';
+            _set_errno(_winerr_to_errno(GetLastError()));
+            goto done;
+        }
+
+        if(GetFullPathNameA(path, totallen, wpath, NULL) == pathlen - 1)
+        {
+            _set_errno(_winerr_to_errno(GetLastError()));
+            goto done;
+        }
+        if (postlen != 0)
+        {
+            if (oe_memcpy_s(wpath + pathlen - 1, totallen - pathlen + 1, post,
+                    postlen) != OE_OK)
+            {
+                _set_errno(OE_ENOMEM);
+                goto done;
+            }
         }
     }
 
