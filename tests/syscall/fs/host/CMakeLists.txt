@@ -1,11 +1,7 @@
 # Copyright (c) Open Enclave SDK contributors.
 # Licensed under the MIT License.
 
-if(UNIX)
-    set(EDL_FILE "../linux/fs.edl")
-else()
-    set(EDL_FILE "../windows/fs.edl")
-endif()
+set(EDL_FILE "../fs.edl")
 
 add_custom_command(
     OUTPUT fs_u.h fs_u.c
