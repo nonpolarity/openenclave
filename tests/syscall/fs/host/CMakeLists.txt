@@ -2,9 +2,9 @@
 # Licensed under the MIT License.
 
 if(UNIX)
-    set(EDL_FILE "../linux/fs.edl")
+    set(EDL_FILE "../fs.edl")
 else()
-    set(EDL_FILE "../windows/fs.edl")
+    set(EDL_FILE "../fs.edl")
 endif()
 
 add_custom_command(

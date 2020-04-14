@@ -3,6 +3,8 @@
 
 #if defined(_WIN32)
 #include <windows.h>
+#else
+#include <dirent.h>
 #endif
 #include <openenclave/host.h>
 #include <openenclave/internal/syscall/host.h>
@@ -14,7 +16,48 @@
 
 #define SKIP_RETURN_CODE 2
 
+#if defined(_WIN32)
 int rmdir(const char* path);
+#else
+int rmdir(const char* path)
+{
+    char abs_path[PATH_MAX];
+    int result = -1;
+    struct dirent* entry = NULL;
+    DIR* dir = NULL;
+    if (!(dir = opendir(path)))
+    {
+        goto done;
+    }
+
+    while ((entry = readdir(dir)))
+    {
+        DIR* sub_dir = NULL;
+        FILE* file = NULL;
+        memset(abs_path, 0, PATH_MAX);
+        // Here ".." is also excluded.
+        if (*(entry->d_name) != '.')
+        {
+            sprintf(abs_path, "%s/%s", path, entry->d_name);
+            if ((sub_dir = opendir(abs_path)))
+            {
+                closedir(sub_dir);
+                rmdir(abs_path);
+            }
+            else if ((file = fopen(abs_path, "r")))
+            {
+                fclose(file);
+                remove(abs_path);
+            }
+        }
+    }
+
+    result = remove(path);
+
+done:
+    return result;
+}
+#endif
 
 int test_fs_posix(
     const char* enclave_path,
@@ -38,6 +81,13 @@ int test_fs_posix(
 
     r = test_fs(enclave, src_dir, tmp_dir);
     OE_TEST(r == OE_OK);
+
+#if !defined(_WIN32)
+    rmdir(tmp_dir);
+
+    r = test_fs_linux(enclave, src_dir, tmp_dir);
+    OE_TEST(r == OE_OK);
+#endif
 
     r = oe_terminate_enclave(enclave);
     OE_TEST(r == OE_OK);
