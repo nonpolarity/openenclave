@@ -24,3 +24,7 @@ else()
 endif()
 
 target_link_libraries(fs_host ${OESGXFSHOST} oehostapp)
+
+if(WIN32)
+    target_compile_definitions(fs_host PRIVATE _CRT_SECURE_NO_WARNINGS)
+endif()
