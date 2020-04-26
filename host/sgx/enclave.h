@@ -19,14 +19,7 @@
 #include <windows.h>
 #endif
 
-typedef struct _enclave_event
-{
-#if defined(__linux__)
-    uint32_t value;
-#elif defined(_WIN32)
-    HANDLE handle;
-#endif
-} EnclaveEvent;
+typedef uint32_t EnclaveEvent;
 
 #define ENCLAVE_MAGIC 0x20dc98463a5ad8b8
 
