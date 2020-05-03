@@ -19,7 +19,10 @@
 #include <windows.h>
 #endif
 
-typedef uint32_t EnclaveEvent;
+typedef struct _enclave_event
+{
+    volatile uint32_t lock;
+} EnclaveEvent;
 
 #define ENCLAVE_MAGIC 0x20dc98463a5ad8b8
 
