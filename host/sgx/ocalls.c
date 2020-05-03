@@ -33,6 +33,15 @@
 #include "quote.h"
 #include "sgxquoteprovider.h"
 
+// There is a possible catch that if HandleThreadWake() is execute earlier than
+// HandleThreadWait(), HandleThreadWait() will miss the wake signal then
+// waiting there forever. To avoid such situation HandleThreadWake() must
+// wait until HandleThreadWait() starts.
+// Caller should still start HandleThreadWait() earlier than HandleThreadWake()
+// to make this case a small probability, and then no extra performance loss.
+// Caller also must pair HandleThreadWake() with a calling of
+// HandleThreadWait(), in case HandleThreadWake() hang in a infinity loop.
+
 void HandleThreadWait(oe_enclave_t* enclave, uint64_t arg_in)
 {
     const uint64_t tcs = arg_in;
@@ -41,11 +50,21 @@ void HandleThreadWait(oe_enclave_t* enclave, uint64_t arg_in)
 
 #if defined(__linux__)
 
-    if (__sync_fetch_and_add(event, (uint32_t)-1) == 0)
+    if (__sync_fetch_and_add(&event->lock, (uint32_t)-1) == 0)
     {
+        syscall(
+            __NR_futex, &event->lock, FUTEX_WAKE_PRIVATE, -1, NULL, NULL, 0);
+
         do
         {
-            syscall(__NR_futex, &event->lock, FUTEX_WAIT_PRIVATE, -1, NULL, NULL, 0);
+            syscall(
+                __NR_futex,
+                &event->lock,
+                FUTEX_WAIT_PRIVATE,
+                -1,
+                NULL,
+                NULL,
+                0);
             // If event->value is still -1, then this is a spurious-wake.
             // Spurious-wakes are ignored by going back to FUTEX_WAIT.
             // Since FUTEX_WAIT uses atomic instructions to load event->value,
@@ -57,21 +76,24 @@ void HandleThreadWait(oe_enclave_t* enclave, uint64_t arg_in)
 
     uint32_t LOCK_IS_FREE = 0;
     uint32_t LOCK_IS_TAKEN = 1;
+
     // Change the event to LOCK_IS_TAKEN from LOCK_IS_FREE.
-    if (_InterlockedCompareExchange(&event->lock, LOCK_IS_TAKEN, LOCK_IS_FREE) == LOCK_IS_FREE)
+    if (_InterlockedCompareExchange(
+            &event->lock, LOCK_IS_TAKEN, LOCK_IS_FREE) == LOCK_IS_FREE)
     {
+        // Notify the wake that now LOCK_IS_TAKEN.
+        WakeByAddressAll((void*)&event->lock);
+
         // Waiting while event is LOCK_IS_TAKEN.
         // Add a loop in case of fake waking.
         do
         {
-            WaitOnAddress(&event->lock, &LOCK_IS_TAKEN, sizeof(event->lock), INFINITE);
+            WaitOnAddress(
+                &event->lock, &LOCK_IS_TAKEN, sizeof(event->lock), INFINITE);
         } while (event->lock == LOCK_IS_TAKEN);
     }
 
 #endif
-    printf("No more waiting.\n");
-    fflush(stdout);
-
 }
 
 void HandleThreadWake(oe_enclave_t* enclave, uint64_t arg_in)
@@ -82,6 +104,11 @@ void HandleThreadWake(oe_enclave_t* enclave, uint64_t arg_in)
 
 #if defined(__linux__)
 
+    while (event->lock == 0)
+    {
+        syscall(__NR_futex, &event->lock, FUTEX_WAIT_PRIVATE, 0, NULL, NULL, 0);
+    }
+
     if (__sync_fetch_and_add(&event->lock, 1) != 0)
     {
         syscall(__NR_futex, &event->lock, FUTEX_WAKE_PRIVATE, 1, NULL, NULL, 0);
@@ -91,16 +118,18 @@ void HandleThreadWake(oe_enclave_t* enclave, uint64_t arg_in)
 
     uint32_t LOCK_IS_FREE = 0;
     uint32_t LOCK_IS_TAKEN = 1;
+
+    while (event->lock == LOCK_IS_FREE)
+    {
+        WaitOnAddress(&event->lock, &LOCK_IS_FREE, sizeof(event->lock), 1000);
+    }
+
     // If event is LOCK_IS_TAKEN, change it to LOCK_IS_FREE,
     // then notify the waiting thread.
-    if (_InterlockedCompareExchange(&event->lock, LOCK_IS_FREE, LOCK_IS_TAKEN) == LOCK_IS_TAKEN)
+    if (_InterlockedCompareExchange(
+            &event->lock, LOCK_IS_FREE, LOCK_IS_TAKEN) == LOCK_IS_TAKEN)
     {
-        WakeByAddressAll((void *)&event->lock);
-    }
-    else
-    {
-        printf("Not locked!\n");
-        fflush(stdout);
+        WakeByAddressAll((void*)&event->lock);
     }
 
 #endif
