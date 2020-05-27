@@ -85,6 +85,8 @@ typedef struct _thread_binding
 
 /* Get thread data from thread-specific data (TSD) */
 oe_thread_binding_t* oe_get_thread_binding(void);
+/* The funtion in simulation mode */
+oe_thread_binding_t* oe_get_thread_binding_sim(void);
 
 /**
  *  This structure must be kept in sync with the defines in

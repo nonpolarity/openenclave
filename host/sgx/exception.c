@@ -23,24 +23,34 @@ uint64_t oe_host_handle_exception(oe_host_exception_context_t* context)
     uint64_t tcs_address = context->rbx;
     uint64_t exit_address = context->rip;
 
-    // Check if the signal happens inside the enclave.
-    if ((exit_address == OE_AEP_ADDRESS) && (exit_code == ENCLU_ERESUME))
+    // Call-in enclave to handle the exception.
+    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
+    if (enclave == NULL)
     {
-        // Check if the enclave exception happens inside the first pass
-        // exception handler.
-        oe_thread_binding_t* thread_data = oe_get_thread_binding();
-        if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
-        {
-            abort();
-        }
+        abort();
+    }
 
-        // Call-in enclave to handle the exception.
-        oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
-        if (enclave == NULL)
-        {
-            abort();
-        }
+    // Check if the enclave exception happens inside the first pass
+    // exception handler.
+    oe_thread_binding_t* thread_data;
+    if (!enclave->simulate)
+    {
+        thread_data = oe_get_thread_binding();
+    }
+    else
+    {
+        thread_data = oe_get_thread_binding_sim();
+    }
 
+    if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
+    {
+        abort();
+    }
+
+    // Check if the signal happens inside the enclave.
+    if (((exit_address == OE_AEP_ADDRESS) && (exit_code == ENCLU_ERESUME)) ||
+        enclave->simulate)
+    {
         // Set the flag marks this thread is handling an enclave exception.
         thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
 

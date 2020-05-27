@@ -270,6 +270,7 @@ if (OE_SGX)
     sgx/enclave.c
     sgx/enclavemanager.c
     sgx/exception.c
+    sgx/exception_sim.c
     sgx/load.c
     sgx/loadelf.c
     sgx/ocalls.c
@@ -281,6 +282,11 @@ if (OE_SGX)
     sgx/sgxsign.c
     sgx/sgxtypes.c
     sgx/switchless.c)
+
+  # Functions in sgx/exception_sim.c will change the fs register and may trigger
+  # stack check fail, thus it is necessary to turn off stack check.
+  set_source_files_properties(sgx/exception_sim.c
+                              PROPERTIES COMPILE_FLAGS -fno-stack-protector)
 
   # OS specific as well.
   if (UNIX)

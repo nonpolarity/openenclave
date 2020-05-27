@@ -112,7 +112,7 @@ static oe_result_t _enter_sim(
 
     /* Set oe_sgx_td_t.simulate flag */
     td = (oe_sgx_td_t*)(enclave->addr + tcs->gsbase);
-    td->simulate = true;
+    td->simulate = (uint64_t)oe_get_fs_register_base();
 
     /* Call into enclave */
     if (arg3)
