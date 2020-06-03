@@ -16,7 +16,7 @@ oe_thread_binding_t* oe_get_thread_binding_sim()
 
     oe_thread_binding_t* thread_data = oe_get_thread_binding();
 
-    oe_set_fs_register_base(enclave_fs);
+    //   oe_set_fs_register_base(enclave_fs);
 
     return thread_data;
 }

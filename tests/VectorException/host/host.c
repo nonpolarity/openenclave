@@ -145,13 +145,15 @@ int main(int argc, const char* argv[])
     printf("=== This program is used to test basic vector exception "
            "functionalities.\n");
 
-    const uint32_t flags = oe_get_create_flags();
-    if ((flags & OE_ENCLAVE_FLAG_SIMULATE) != 0)
-    {
-        printf("=== Skipped unsupported test in simulation mode "
-               "(VectorException)\n");
-        return SKIP_RETURN_CODE;
-    }
+    uint32_t flags = oe_get_create_flags();
+    //    if ((flags & OE_ENCLAVE_FLAG_SIMULATE) != 0)
+    //    {
+    //        printf("=== Skipped unsupported test in simulation mode "
+    //               "(VectorException)\n");
+    //        return SKIP_RETURN_CODE;
+    //    }
+    //
+    //    flags |= OE_ENCLAVE_FLAG_SIMULATE;
 
     if ((result = oe_create_VectorException_enclave(
              argv[1], OE_ENCLAVE_TYPE_SGX, flags, NULL, 0, &enclave)) != OE_OK)

@@ -552,7 +552,8 @@ if (UNIX)
   target_compile_options(
     oehost
     PRIVATE -Wno-attributes -Wmissing-prototypes -fPIC ${PLATFORM_FLAGS}
-    PUBLIC -fstack-protector-strong)
+    #    PUBLIC -fstack-protector-strong)
+    PUBLIC -fno-stack-protector)
   target_compile_definitions(
     oehost
     PRIVATE _GNU_SOURCE
