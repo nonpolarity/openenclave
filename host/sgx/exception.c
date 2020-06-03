@@ -21,6 +21,8 @@ uint64_t oe_host_handle_exception(oe_host_exception_context_t* context)
 {
     uint64_t exit_code = context->rax;
     uint64_t tcs_address = context->rbx;
+    sgx_tcs_t* tcs = (sgx_tcs_t*)tcs_address;
+    tcs_address = (uint64_t)tcs;
     uint64_t exit_address = context->rip;
 
     // Check if the signal happens inside the enclave.

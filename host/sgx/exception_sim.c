@@ -138,6 +138,7 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
     uint64_t tcs_address = (uint64_t)context->uc_mcontext.gregs[REG_RBX];
     // uint64_t exit_address = (uint64_t)context->uc_mcontext.gregs[REG_RIP];
 
+<<<<<<< HEAD
     uint64_t ret = OE_EXCEPTION_CONTINUE_SEARCH;
 
     // Check if the signal happens inside the enclave.
@@ -194,6 +195,9 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
         ret = OE_EXCEPTION_CONTINUE_SEARCH;
         goto done;
     }
+=======
+    //   oe_set_fs_register_base(enclave_fs);
+>>>>>>> Sync context to ssa.
 
 done:
     _oe_eresume_sim(context, host_fs);
