@@ -14,6 +14,13 @@
  */
 #define ENCLU_ERESUME 3
 
+bool is_simulate(oe_host_exception_context_t* context)
+{
+    uint64_t tcs_address = context->rbx;
+    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
+    return enclave->simulate;
+}
+
 oe_enclave_t* oe_query_enclave_instance(void* tcs);
 
 /* Platform neutral exception handler */

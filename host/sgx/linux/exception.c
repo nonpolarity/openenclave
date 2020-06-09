@@ -24,30 +24,17 @@
 
 #define PAGE_SIZE 4096
 #define TD_FROM_TCS (5 * PAGE_SIZE)
+#define SGX_EXIT_TYPE_SOFTWARE 0x6
 
 #if !defined(_NSIG) && defined(_SIG_MAXSIG)
 #define _NSIG (_SIG_MAXSIG - 1)
 #endif
 
 static struct sigaction g_previous_sigaction[_NSIG];
-
-static void save_gpr_to_ssa(ucontext_t* context)
+static sgx_ssa_gpr_t* _get_ssa_gpr(sgx_tcs_t* tcs)
 {
-    sgx_tcs_t* tcs_address = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
-
-    // Call-in enclave to handle the exception.
-    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
-    if (enclave == NULL)
-    {
-        abort();
-    }
-    if (!enclave->simulate)
-    {
-        return;
-    }
-
     // why ossa != OE_SSA_FROM_TCS_BYTE_OFFSET?
-    uint32_t cssa = tcs_address->cssa;
+    uint32_t cssa = tcs->cssa;
     // uint64_t ossa = ((sgx_tcs_t*)tcs_address)->ossa;
 
     // oe_sgx_td_t* td = (oe_sgx_td_t*)(tcs_address + TD_FROM_TCS);
@@ -58,14 +45,26 @@ static void save_gpr_to_ssa(ucontext_t* context)
         ssa_frame_size = OE_DEFAULT_SSA_FRAME_SIZE;
     }
 
-    uint64_t ssa_base_address =
-        (uint64_t)tcs_address + OE_SSA_FROM_TCS_BYTE_OFFSET;
-    sgx_ssa_gpr_t* ssa_gpr =
-        (sgx_ssa_gpr_t*)(ssa_base_address + (cssa + 1) * ssa_frame_size * OE_PAGE_SIZE - OE_SGX_GPR_BYTE_SIZE);
+    uint64_t ssa_base_address = (uint64_t)tcs + OE_SSA_FROM_TCS_BYTE_OFFSET;
 
-    uint64_t a = (uint64_t)(context->uc_mcontext.gregs[REG_RAX]);
-    ssa_gpr->rax = a;
+    // cssa always points to the unfilled ssa.
+    return (
+        sgx_ssa_gpr_t*)(ssa_base_address + cssa * ssa_frame_size * OE_PAGE_SIZE - OE_SGX_GPR_BYTE_SIZE);
+}
 
+static void oe_aex_sim(ucontext_t* context)
+{
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+
+    //// Update cssa as AEX does.
+    tcs->cssa++;
+}
+static void update_ssa_from_context(ucontext_t* context)
+{
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+    sgx_ssa_gpr_t* ssa_gpr = _get_ssa_gpr(tcs);
+
+    // Update gpr.
     ssa_gpr->rax = (uint64_t)(context->uc_mcontext.gregs[REG_RAX]);
     ssa_gpr->rbx = (uint64_t)(context->uc_mcontext.gregs[REG_RBX]);
     ssa_gpr->rcx = (uint64_t)(context->uc_mcontext.gregs[REG_RCX]);
@@ -85,7 +84,41 @@ static void save_gpr_to_ssa(ucontext_t* context)
     ssa_gpr->rip = (uint64_t)(context->uc_mcontext.gregs[REG_RIP]);
     ssa_gpr->rflags = (uint64_t)(context->uc_mcontext.gregs[REG_EFL]);
 
-    tcs_address->cssa++;
+    // This flag is checked by virtual dispacher.
+    ssa_gpr->exit_info.as_fields.valid = true;
+    ssa_gpr->exit_info.as_fields.exit_type = SGX_EXIT_TYPE_SOFTWARE;
+}
+
+// static void update_context_from_ssa(ucontext_t* context)
+//{
+//    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+//    sgx_ssa_gpr_t* ssa_gpr = _get_ssa_gpr(tcs);
+//    context->uc_mcontext.gregs[REG_RIP] = (greg_t)(ssa_gpr->rip);
+//}
+
+static void update_context_from_ssa(ucontext_t* context)
+{
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+    sgx_ssa_gpr_t* ssa_gpr = _get_ssa_gpr(tcs);
+
+    context->uc_mcontext.gregs[REG_RAX] = (greg_t)ssa_gpr->rax;
+    context->uc_mcontext.gregs[REG_RBX] = (greg_t)ssa_gpr->rbx;
+    context->uc_mcontext.gregs[REG_RCX] = (greg_t)ssa_gpr->rcx;
+    context->uc_mcontext.gregs[REG_RDX] = (greg_t)ssa_gpr->rdx;
+    context->uc_mcontext.gregs[REG_RSP] = (greg_t)ssa_gpr->rsp;
+    context->uc_mcontext.gregs[REG_RBP] = (greg_t)ssa_gpr->rbp;
+    context->uc_mcontext.gregs[REG_RSI] = (greg_t)ssa_gpr->rsi;
+    context->uc_mcontext.gregs[REG_RDI] = (greg_t)ssa_gpr->rdi;
+    context->uc_mcontext.gregs[REG_R8] = (greg_t)ssa_gpr->r8;
+    context->uc_mcontext.gregs[REG_R9] = (greg_t)ssa_gpr->r9;
+    context->uc_mcontext.gregs[REG_R10] = (greg_t)ssa_gpr->r10;
+    context->uc_mcontext.gregs[REG_R11] = (greg_t)ssa_gpr->r11;
+    context->uc_mcontext.gregs[REG_R12] = (greg_t)ssa_gpr->r12;
+    context->uc_mcontext.gregs[REG_R13] = (greg_t)ssa_gpr->r13;
+    context->uc_mcontext.gregs[REG_R14] = (greg_t)ssa_gpr->r14;
+    context->uc_mcontext.gregs[REG_R15] = (greg_t)ssa_gpr->r15;
+    context->uc_mcontext.gregs[REG_RIP] = (greg_t)ssa_gpr->rip;
+    context->uc_mcontext.gregs[REG_EFL] = (greg_t)ssa_gpr->rflags;
 }
 
 static void _host_signal_handler(
@@ -102,7 +135,11 @@ static void _host_signal_handler(
     sgx_tcs_t* tcs = (sgx_tcs_t*)host_context.rbx;
     host_context.rbx = (uint64_t)tcs;
 
-    save_gpr_to_ssa(context);
+    if (is_simulate(&host_context))
+    {
+        oe_aex_sim(context);
+        update_ssa_from_context(context);
+    }
 
     // Call platform neutral handler.
     uint64_t action = oe_host_handle_exception(&host_context);
@@ -110,6 +147,12 @@ static void _host_signal_handler(
     if (action == OE_EXCEPTION_CONTINUE_EXECUTION)
     {
         // Exception has been handled.
+        // In simulation mode we need to exec oe_exception_dispatcher().
+        if (is_simulate(&host_context))
+        {
+            update_context_from_ssa(context);
+        }
+
         return;
     }
     else if (g_previous_sigaction[sig_num].sa_handler == SIG_DFL)
