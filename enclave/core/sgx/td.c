@@ -165,7 +165,7 @@ oe_sgx_td_t* oe_sgx_get_td()
 {
     oe_sgx_td_t* td;
 
-    asm("mov %%fs:0, %0" : "=r"(td));
+    asm("mov %%gs:0, %0" : "=r"(td));
 
     return td;
 }

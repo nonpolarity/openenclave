@@ -21,9 +21,12 @@ void oe_initialize_host_exception(void);
 /* Platform neutral exception handler */
 uint64_t oe_host_handle_exception(oe_host_exception_context_t* context);
 
+<<<<<<< HEAD
 /* Exception handler in simulation mode on Linux */
 uint64_t oe_host_handle_exception_sim(ucontext_t* context);
 
+=======
+>>>>>>> First version works
 /* Check if the current enclave is in  simulation mode. */
 bool is_simulate(oe_host_exception_context_t* context);
 
