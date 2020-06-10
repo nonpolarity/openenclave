@@ -49,6 +49,17 @@ oe_enter:
     // the td_t structure as a specific offset from TCS.
     lea TD_FROM_TCS(%rbx), %r11
 
+.execute_eresume_sim:
+    mov td_simulate(%r11), %r8
+    cmp $0, %r8
+    jnz .execute_eresume_sim_instruction
+
+.execute_eresume_sim_instruction:
+    push %rdi
+    mov %r11, %rdi
+    call eresume_sim
+    pop %rdi
+
 .save_host_registers:
     // Backup the current host rbp, rsp, and context to previous.
     mov td_host_rbp(%r11), %r8

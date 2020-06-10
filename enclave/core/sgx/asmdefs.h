@@ -64,6 +64,8 @@ void __oe_handle_main(
     uint64_t* output_arg2);
 
 void oe_exception_dispatcher(void* context);
+
+void eresume_sim(void* addr);
 #endif
 
 #endif /* _ASMDEFS_H */
