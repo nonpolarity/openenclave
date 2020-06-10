@@ -275,7 +275,7 @@ if (OE_SGX)
     sgx/loadelf.c
     sgx/ocalls.c
     sgx/quote.c
-    sgx/registers.c
+    #  sgx/registers.c
     sgx/report.c
     sgx/sgxload.c
     sgx/sgxquote.c
@@ -376,12 +376,16 @@ list(
 
 # Combine the following common code along with the platform specific code and
 # host verification code to get the full oehost target provided by the OE SDK.
+add_library(registers STATIC sgx/registers.c)
+target_include_directories(registers PUBLIC ${CMAKE_SOURCE_DIR}/include)
+
 add_library(oehost STATIC ${PLATFORM_HOST_ONLY_SRC} ${PLATFORM_SDK_ONLY_SRC})
 
 add_library(oehostverify STATIC ${PLATFORM_HOST_ONLY_SRC})
 
 target_link_libraries(oehostverify PUBLIC oe_includes)
 target_link_libraries(oehost PUBLIC oe_includes)
+target_link_libraries(oehost PRIVATE $<BUILD_INTERFACE:registers>)
 
 if (WIN32)
   target_link_libraries(oehost PUBLIC ws2_32 shlwapi)

@@ -79,6 +79,7 @@ if (OE_SGX)
     sgx/backtrace.c
     sgx/calls.c
     sgx/cpuid.c
+    sgx/eresume_sim.c
     sgx/enter.S
     sgx/entropy.c
     sgx/exception.c
@@ -218,7 +219,13 @@ endif ()
 
 enclave_include_directories(oecore PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 
+enclave_include_directories(oecore PRIVATE
+                            ${PROJECT_SOURCE_DIR}/include/openenclave/corelibc)
+
 enclave_link_libraries(oecore PUBLIC oe_includes)
+
+enclave_link_libraries(oecore PRIVATE $<BUILD_INTERFACE:registers>)
+
 if (OE_TRUSTZONE)
   enclave_link_libraries(oecore PUBLIC oelibutee_includes)
 
@@ -315,8 +322,8 @@ if (COMPILE_SYSTEM_EDL)
 endif ()
 
 if (WITH_EEID)
-    enclave_compile_definitions(oecore PRIVATE OE_WITH_EXPERIMENTAL_EEID)
-endif()
+  enclave_compile_definitions(oecore PRIVATE OE_WITH_EXPERIMENTAL_EEID)
+endif ()
 
 # Interface link flags for enclaves.
 if (OE_SGX)
