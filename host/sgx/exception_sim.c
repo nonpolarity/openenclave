@@ -31,6 +31,15 @@ static void _oe_aex_sim(ucontext_t* context, void* host_fs)
     oe_set_fs_register_base(host_fs);
 }
 
+oe_thread_binding_t* oe_get_thread_binding_sim()
+{
+    oe_thread_binding_t* thread_data = oe_get_thread_binding();
+
+    // oe_set_fs_register_base(enclave_fs);
+
+    return thread_data;
+}
+
 static sgx_ssa_gpr_t* _get_ssa_gpr(sgx_tcs_t* tcs)
 {
     // why ossa != OE_SSA_FROM_TCS_BYTE_OFFSET?
@@ -138,7 +147,6 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
     uint64_t tcs_address = (uint64_t)context->uc_mcontext.gregs[REG_RBX];
     // uint64_t exit_address = (uint64_t)context->uc_mcontext.gregs[REG_RIP];
 
-<<<<<<< HEAD
     uint64_t ret = OE_EXCEPTION_CONTINUE_SEARCH;
 
     // Check if the signal happens inside the enclave.
@@ -195,9 +203,6 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
         ret = OE_EXCEPTION_CONTINUE_SEARCH;
         goto done;
     }
-=======
-    //   oe_set_fs_register_base(enclave_fs);
->>>>>>> Sync context to ssa.
 
 done:
     _oe_eresume_sim(context, host_fs);
