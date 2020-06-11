@@ -83,6 +83,7 @@ if (OE_SGX)
     sgx/enter.S
     sgx/entropy.c
     sgx/exception.c
+    sgx/exception_sim.c
     sgx/exit.S
     sgx/getkey.S
     sgx/globals.c
@@ -109,6 +110,8 @@ if (OE_SGX)
   # stack check fail, thus it is necessary to turn off stack check.
   set_source_files_properties(sgx/td_basic.c PROPERTIES COMPILE_FLAGS
                                                         -fno-stack-protector)
+  set_source_files_properties(sgx/exception_sim.c
+                              PROPERTIES COMPILE_FLAGS -fno-stack-protector)
 
 elseif (OE_TRUSTZONE)
   list(
