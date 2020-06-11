@@ -5,6 +5,8 @@
 #include <openenclave/internal/context.inc>
 #include "asmcommon.inc"
 
+#define TD_MAGIC 0xc90afe906c5d19a3
+
 //==============================================================================
 //
 // oe_enter(RAX=CSSA, RBX=TCS, RCX=RETADDR, RDI=ARG1, RSI=ARG2)
@@ -50,8 +52,22 @@ oe_enter:
     lea TD_FROM_TCS(%rbx), %r11
 
 .execute_eresume_sim:
+    // Check if td is initialized.
+    // td->base.self_addr == td.
+    cmp (%r11), %r11
+    jnz .save_host_registers
+    // td->magic == TD_MAGIC.
+    mov td_magic(%r11), %r8
+    mov $TD_MAGIC, %r9
+    cmp %r8, %r9
+    jnz .save_host_registers
+    // Check if it is in simulation mode.
     mov td_simulate(%r11), %r8
     cmp $0, %r8
+    jz .save_host_registers
+    // Check if fs points to td.
+    mov %fs:0, %r8
+    cmp %r11, %r8
     jnz .execute_eresume_sim_instruction
 
 .execute_eresume_sim_instruction:
