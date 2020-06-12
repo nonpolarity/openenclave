@@ -42,8 +42,11 @@ void _set_fs_register_base(const void* ptr)
 #endif
 }
 
-void eresume_sim(oe_context_t* oe_context, oe_sgx_td_t* td)
+void eresume_sim(oe_context_t* oe_context)
 {
+    sgx_tcs_t* sgx_tcs = (sgx_tcs_t*)(oe_context->rbx);
+    oe_sgx_td_t* td = td_from_tcs(sgx_tcs);
+
     _set_fs_register_base((const void*)td);
     oe_continue_execution(oe_context);
 

@@ -311,6 +311,8 @@ set_target_properties(exception_sim PROPERTIES COMPILE_OPTIONS "${CFLAGS}")
 enclave_include_directories(exception_sim PRIVATE ${PROJECT_SOURCE_DIR}/include
                             ${CMAKE_BINARY_DIR}/output/include)
 
+target_link_libraries(oecore PRIVATE $<BUILD_INTERFACE:exception_sim>)
+
 enclave_compile_options(oecore INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-nostdinc++>)
 
 enclave_compile_definitions(
