@@ -83,7 +83,6 @@ if (OE_SGX)
     sgx/enter.S
     sgx/entropy.c
     sgx/exception.c
-    sgx/exception_sim.c
     sgx/exit.S
     sgx/getkey.S
     sgx/globals.c
@@ -110,9 +109,6 @@ if (OE_SGX)
   # stack check fail, thus it is necessary to turn off stack check.
   set_source_files_properties(sgx/td_basic.c PROPERTIES COMPILE_FLAGS
                                                         -fno-stack-protector)
-  set_source_files_properties(sgx/exception_sim.c
-                              PROPERTIES COMPILE_FLAGS -fno-stack-protector)
-
 elseif (OE_TRUSTZONE)
   list(
     APPEND
@@ -183,6 +179,9 @@ add_enclave_library(
   wchar.c
   $<TARGET_OBJECTS:${DEFAULT_ALLOCATOR}>
   ${PLATFORM_SRC})
+
+get_target_property(prev_props oecore COMPILE_FLAGS)
+message("TEMP: " ${TEMP})
 
 # Some files in oecore come directly from the musl source. For these files,
 # corelibc functions with stdc names are required.
@@ -292,6 +291,26 @@ if (OE_SGX)
 elseif (OE_TRUSTZONE)
   enclave_compile_options(oecore PUBLIC -fvisibility=hidden ${OE_TZ_TA_C_FLAGS})
 endif ()
+
+add_library(exception_sim STATIC sgx/exception_sim.c)
+# Functions in eresume_sim will set the FS segment register as ERESUME does and may trigger
+# stack check fail, thus it is necessary to turn off stack check.
+# Stdlibs are necessary to make syscall, while "-nostdinc" excludes the system header files.
+
+#get_cmake_property(_variableNames VARIABLES)
+#list (SORT _variableNames)
+#foreach (_variableName ${_variableNames})
+#  message(STATUS "${_variableName}=${${_variableName}}")
+#endforeach()
+get_target_property(CFLAGS oecore COMPILE_OPTIONS)
+# also see: COMPILE_DEFINITIONS INCLUDE_DIRECTORIES
+message("-- Target compiler flags are: ${CFLAGS}")
+#string(REGEX REPLACE "-nostdinc" "" MAIN_CFLAGS "${MAIN_CFLAGS}")
+list(REMOVE_ITEM CFLAGS -nostdinc)
+message("-- Target compiler flags after replace are: ${CFLAGS}")
+set_target_properties(exception_sim PROPERTIES COMPILE_OPTIONS "${CFLAGS}")
+enclave_include_directories(exception_sim PRIVATE ${PROJECT_SOURCE_DIR}/include
+                            ${CMAKE_BINARY_DIR}/output/include)
 
 enclave_compile_options(oecore INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-nostdinc++>)
 
