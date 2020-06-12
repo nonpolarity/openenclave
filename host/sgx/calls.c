@@ -110,9 +110,10 @@ static oe_result_t _enter_sim(
     if (!tcs->u.entry)
         OE_RAISE(OE_NOT_FOUND);
 
-    /* Set oe_sgx_td_t.simulate flag */
+    /* Set oe_sgx_td_t.simulate flag to true */
+    // In simulation mode we need the FS register while exception handling.
     td = (oe_sgx_td_t*)(enclave->addr + tcs->gsbase);
-    td->simulate = true;
+    td->simulate = (uint64_t)oe_get_fs_register_base();
 
     /* Call into enclave */
     if (arg3)
