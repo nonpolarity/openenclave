@@ -12,17 +12,23 @@
 #define SGX_EXIT_TYPE_HARDWARE 0x3
 #define SGX_EXIT_TYPE_SOFTWARE 0x6
 
+static void _oe_aex_sim(ucontext_t* context, void* host_fs)
+{
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+
+    //// Update cssa as AEX does.
+    tcs->cssa++;
+
+    // This aex is delayed. Change the FS register to host side although this
+    // code is already on host side.
+    oe_set_fs_register_base(host_fs);
+}
+
 oe_thread_binding_t* oe_get_thread_binding_sim()
 {
-    void* enclave_fs = oe_get_fs_register_base();
-    oe_sgx_td_t* td = (oe_sgx_td_t*)enclave_fs;
-    void* host_fs = (void*)td->simulate;
-
-    oe_set_fs_register_base(host_fs);
-
     oe_thread_binding_t* thread_data = oe_get_thread_binding();
 
-    //   oe_set_fs_register_base(enclave_fs);
+    // oe_set_fs_register_base(enclave_fs);
 
     return thread_data;
 }
@@ -46,14 +52,6 @@ static sgx_ssa_gpr_t* _get_ssa_gpr(sgx_tcs_t* tcs)
     // cssa always points to the unfilled ssa.
     return (
         sgx_ssa_gpr_t*)(ssa_base_address + cssa * ssa_frame_size * OE_PAGE_SIZE - OE_SGX_GPR_BYTE_SIZE);
-}
-
-static void _oe_aex_sim(ucontext_t* context)
-{
-    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
-
-    //// Update cssa as AEX does.
-    tcs->cssa++;
 }
 
 static void _update_ssa_from_context(ucontext_t* context)
@@ -111,24 +109,45 @@ static void _update_context_from_ssa(ucontext_t* context)
     context->uc_mcontext.gregs[REG_EFL] = (greg_t)ssa_gpr->rflags;
 }
 
+static void _oe_eresume_sim(ucontext_t* context, void* enclave_fs)
+{
+    OE_UNUSED(context);
+    //    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+
+    //    //// Update cssa as AEX does.
+    //    tcs->cssa++;
+
+    // Since aex was deferred, eresume must be advanced, to keep the status
+    // before and after oe_host_handle_exception_sim consistent.
+    // Change the FS register to enclave side although this
+    // code is not so close to the boundary.
+    oe_set_fs_register_base(enclave_fs);
+}
+
 /* Platform neutral exception handler */
 uint64_t oe_host_handle_exception_sim(ucontext_t* context)
 {
+    void* enclave_fs = oe_get_fs_register_base();
+    oe_sgx_td_t* td = (oe_sgx_td_t*)enclave_fs;
+    void* host_fs = (void*)td->simulate;
+
     // Simulate the AEX in SGX hardware mode.
     // Copy the data of context into ssa manually.
-    _oe_aex_sim(context);
+    _oe_aex_sim(context, host_fs);
     _update_ssa_from_context(context);
 
     // uint64_t exit_code    = (uint64_t)context->uc_mcontext.gregs[REG_RAX];
     uint64_t tcs_address = (uint64_t)context->uc_mcontext.gregs[REG_RBX];
     // uint64_t exit_address = (uint64_t)context->uc_mcontext.gregs[REG_RIP];
 
+    uint64_t ret = OE_EXCEPTION_CONTINUE_SEARCH;
+
     // Check if the signal happens inside the enclave.
     if (true)
     {
         // Check if the enclave exception happens inside the first pass
         // exception handler.
-        oe_thread_binding_t* thread_data = oe_get_thread_binding_sim();
+        oe_thread_binding_t* thread_data = oe_get_thread_binding();
         if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
         {
             abort();
@@ -158,20 +177,27 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
         if (result == OE_OK && arg_out == OE_EXCEPTION_CONTINUE_EXECUTION)
         {
             // This exception has been handled by the enclave. Let's resume.
-            return OE_EXCEPTION_CONTINUE_EXECUTION;
+            ret = OE_EXCEPTION_CONTINUE_EXECUTION;
+            goto done;
         }
         else
         {
             // Un-handled enclave exception happened.
             // We continue the exception handler search as if it were a
             // non-enclave exception.
-            return OE_EXCEPTION_CONTINUE_SEARCH;
+            ret = OE_EXCEPTION_CONTINUE_SEARCH;
+            goto done;
         }
     }
     else
     {
         // Not an exclave exception.
         // Continue searching for other handlers.
-        return OE_EXCEPTION_CONTINUE_SEARCH;
+        ret = OE_EXCEPTION_CONTINUE_SEARCH;
+        goto done;
     }
+
+done:
+    _oe_eresume_sim(context, host_fs);
+    return ret;
 }
