@@ -245,10 +245,7 @@ int _emulate_illegal_instruction(sgx_ssa_gpr_t* ssa_gpr)
 */
 void oe_real_exception_dispatcher(oe_context_t* oe_context)
 {
-    // In simulation mode, the FS register does not point to td after excetion.
-    // Functions rely on FS register, such as oe_sgx_get_td(), does not work.
-    sgx_tcs_t* sgx_tcs = (sgx_tcs_t*)(oe_context->rbx);
-    oe_sgx_td_t* td = td_from_tcs(sgx_tcs);
+    oe_sgx_td_t* td = oe_sgx_get_td();
 
     // Change the rip of oe_context to the real exception address.
     oe_context->rip = td->exception_address;

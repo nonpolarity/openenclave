@@ -196,6 +196,6 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
     }
 
 done:
-    _oe_eresume_sim(context, host_fs);
+    _oe_eresume_sim(context, enclave_fs);
     return ret;
 }
