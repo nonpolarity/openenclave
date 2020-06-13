@@ -31,15 +31,6 @@ static void _oe_aex_sim(ucontext_t* context, void* host_fs)
     oe_set_fs_register_base(host_fs);
 }
 
-oe_thread_binding_t* oe_get_thread_binding_sim()
-{
-    oe_thread_binding_t* thread_data = oe_get_thread_binding();
-
-    // oe_set_fs_register_base(enclave_fs);
-
-    return thread_data;
-}
-
 static sgx_ssa_gpr_t* _get_ssa_gpr(sgx_tcs_t* tcs)
 {
     // why ossa != OE_SSA_FROM_TCS_BYTE_OFFSET?

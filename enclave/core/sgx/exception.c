@@ -286,14 +286,7 @@ void oe_real_exception_dispatcher(oe_context_t* oe_context)
     // Jump to the point where oe_context refers to and continue.
     if (handler_ret == OE_EXCEPTION_CONTINUE_EXECUTION)
     {
-        if (!td->simulate)
-        {
-            oe_continue_execution(oe_exception_record.context);
-        }
-        else
-        {
-            eresume_sim(oe_exception_record.context);
-        }
+        oe_continue_execution(oe_exception_record.context);
 
         // Code should never run to here.
         oe_abort();

@@ -292,28 +292,6 @@ elseif (OE_TRUSTZONE)
   enclave_compile_options(oecore PUBLIC -fvisibility=hidden ${OE_TZ_TA_C_FLAGS})
 endif ()
 
-add_library(exception_sim STATIC sgx/exception_sim.c)
-# Functions in eresume_sim will set the FS segment register as ERESUME does and may trigger
-# stack check fail, thus it is necessary to turn off stack check.
-# Stdlibs are necessary to make syscall, while "-nostdinc" excludes the system header files.
-
-#get_cmake_property(_variableNames VARIABLES)
-#list (SORT _variableNames)
-#foreach (_variableName ${_variableNames})
-#  message(STATUS "${_variableName}=${${_variableName}}")
-#endforeach()
-get_target_property(CFLAGS oecore COMPILE_OPTIONS)
-# also see: COMPILE_DEFINITIONS INCLUDE_DIRECTORIES
-message("-- Target compiler flags are: ${CFLAGS}")
-#string(REGEX REPLACE "-nostdinc" "" MAIN_CFLAGS "${MAIN_CFLAGS}")
-list(REMOVE_ITEM CFLAGS -nostdinc)
-message("-- Target compiler flags after replace are: ${CFLAGS}")
-set_target_properties(exception_sim PROPERTIES COMPILE_OPTIONS "${CFLAGS}")
-enclave_include_directories(exception_sim PRIVATE ${PROJECT_SOURCE_DIR}/include
-                            ${CMAKE_BINARY_DIR}/output/include)
-
-target_link_libraries(oecore PRIVATE $<BUILD_INTERFACE:exception_sim>)
-
 enclave_compile_options(oecore INTERFACE $<$<COMPILE_LANGUAGE:CXX>:-nostdinc++>)
 
 enclave_compile_definitions(
