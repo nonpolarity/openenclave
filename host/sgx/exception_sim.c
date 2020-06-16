@@ -109,11 +109,10 @@ static void _update_context_from_ssa(ucontext_t* context)
 
 static void _oe_eresume_sim(ucontext_t* context, void* enclave_fs)
 {
-    OE_UNUSED(context);
-    //    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
 
-    //    //// Update cssa as AEX does.
-    //    tcs->cssa++;
+    //// Update cssa as AEX does.
+    tcs->cssa--;
 
     // Since aex was deferred, eresume must be advanced, to keep the status
     // before and after oe_host_handle_exception_sim consistent.
