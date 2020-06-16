@@ -8,10 +8,6 @@
 #include "enclave.h"
 #include "exception.h"
 
-// SGX hardware exit type, must align with Intel SDM.
-#define SGX_EXIT_TYPE_HARDWARE 0x3
-#define SGX_EXIT_TYPE_SOFTWARE 0x6
-
 bool is_simulate(oe_host_exception_context_t* context)
 {
     uint64_t tcs_address = context->rbx;
@@ -21,9 +17,8 @@ bool is_simulate(oe_host_exception_context_t* context)
 
 static void _oe_aex_sim(ucontext_t* context, void* host_fs)
 {
+    // Update cssa as AEX does in real mode.
     sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
-
-    //// Update cssa as AEX does.
     tcs->cssa++;
 
     // This aex is delayed. Change the FS register to host side although this
@@ -79,7 +74,6 @@ static void _update_ssa_from_context(ucontext_t* context)
 
     // This flag is checked by virtual dispacher.
     ssa_gpr->exit_info.as_fields.valid = true;
-    ssa_gpr->exit_info.as_fields.exit_type = SGX_EXIT_TYPE_SOFTWARE;
 }
 
 static void _update_context_from_ssa(ucontext_t* context)
@@ -109,15 +103,11 @@ static void _update_context_from_ssa(ucontext_t* context)
 
 static void _oe_eresume_sim(ucontext_t* context, void* enclave_fs)
 {
+    // Update cssa as ERESUME does in real mode.
     sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
-
-    //// Update cssa as AEX does.
     tcs->cssa--;
 
-    // Since aex was deferred, eresume must be advanced, to keep the status
-    // before and after oe_host_handle_exception_sim consistent.
-    // Change the FS register to enclave side although this
-    // code is not so close to the boundary.
+    // Change the FS register to enclave side.
     oe_set_fs_register_base(enclave_fs);
 }
 
@@ -139,62 +129,52 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
 
     uint64_t ret = OE_EXCEPTION_CONTINUE_SEARCH;
 
-    // Check if the signal happens inside the enclave.
-    if (true)
+    // Check if the enclave exception happens inside the first pass
+    // exception handler.
+    oe_thread_binding_t* thread_data = oe_get_thread_binding();
+    if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
     {
-        // Check if the enclave exception happens inside the first pass
-        // exception handler.
-        oe_thread_binding_t* thread_data = oe_get_thread_binding();
-        if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
-        {
-            abort();
-        }
+        abort();
+    }
 
-        // Call-in enclave to handle the exception.
-        oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
-        if (enclave == NULL)
-        {
-            abort();
-        }
+    // Call-in enclave to handle the exception.
+    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
+    if (enclave == NULL)
+    {
+        abort();
+    }
 
-        // Set the flag marks this thread is handling an enclave exception.
-        thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
+    // Set the flag marks this thread is handling an enclave exception.
+    thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
 
-        // Call into enclave first pass exception handler.
-        uint64_t arg_out = 0;
-        oe_result_t result =
-            oe_ecall(enclave, OE_ECALL_VIRTUAL_EXCEPTION_HANDLER, 0, &arg_out);
+    // Call into enclave first pass exception handler.
+    uint64_t arg_out = 0;
+    oe_result_t result =
+        oe_ecall(enclave, OE_ECALL_VIRTUAL_EXCEPTION_HANDLER, 0, &arg_out);
 
-        // Some info about the exception are updated in SSA.
-        // Copy the data back to context manually.
-        _update_context_from_ssa(context);
+    // Some info about the exception are updated in SSA.
+    // Copy the data back to context manually.
+    _update_context_from_ssa(context);
 
-        // Reset the flag
-        thread_data->flags &= (~_OE_THREAD_HANDLING_EXCEPTION);
-        if (result == OE_OK && arg_out == OE_EXCEPTION_CONTINUE_EXECUTION)
-        {
-            // This exception has been handled by the enclave. Let's resume.
-            ret = OE_EXCEPTION_CONTINUE_EXECUTION;
-            goto done;
-        }
-        else
-        {
-            // Un-handled enclave exception happened.
-            // We continue the exception handler search as if it were a
-            // non-enclave exception.
-            ret = OE_EXCEPTION_CONTINUE_SEARCH;
-            goto done;
-        }
+    // Reset the flag
+    thread_data->flags &= (~_OE_THREAD_HANDLING_EXCEPTION);
+    if (result == OE_OK && arg_out == OE_EXCEPTION_CONTINUE_EXECUTION)
+    {
+        // This exception has been handled by the enclave. Let's resume.
+        ret = OE_EXCEPTION_CONTINUE_EXECUTION;
     }
     else
     {
-        // Not an exclave exception.
-        // Continue searching for other handlers.
+        // Un-handled enclave exception happened.
+        // We continue the exception handler search as if it were a
+        // non-enclave exception.
         ret = OE_EXCEPTION_CONTINUE_SEARCH;
-        goto done;
     }
 
-done:
+    // Since aex was deferred, eresume must be advanced, to keep the status
+    // before and after oe_host_handle_exception_sim consistent, then stack
+    // protector for _host_signal_handler does not need to disable, either in
+    // simlation mode or in real mode.
     _oe_eresume_sim(context, enclave_fs);
     return ret;
 }
