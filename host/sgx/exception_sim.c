@@ -86,30 +86,31 @@ static void _update_sgx_vector(ucontext_t* context, int sig_num)
 {
     // Hardcode here must match g_vector_to_exception_code_mapping[] in
     // enclave/core/sgx/exception.c
-    uint32_t vector = (uint32_t)-1;
+    uint32_t sgx_vector = (uint32_t)-1;
     switch (sig_num)
     {
         case SIGILL: // OE_EXCEPTION_ILLEGAL_INSTRUCTION
-            vector = 6;
+            sgx_vector = 6;
             break;
         case SIGTRAP: // OE_EXCEPTION_BREAKPOIN
-            vector = 3;
+            sgx_vector = 3;
             break;
         case SIGBUS: // OE_EXCEPTION_MISALIGNMENT
-            vector = 17;
+            sgx_vector = 17;
             break;
         case SIGFPE: // OE_EXCEPTION_DIVIDE_BY_ZERO
-            vector = 0;
+            sgx_vector = 0;
             break;
         case SIGSEGV: // OE_EXCEPTION_ACCESS_VIOLATION
-            vector = 13;
+            sgx_vector = 13;
             break;
     }
 
     sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
     sgx_ssa_gpr_t* ssa_gpr = _get_ssa_gpr(tcs);
-    ssa_gpr->exit_info.as_fields.vector = vector;
+    ssa_gpr->exit_info.as_fields.vector = sgx_vector;
 }
+
 static void _update_context_from_ssa(ucontext_t* context)
 {
     sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
