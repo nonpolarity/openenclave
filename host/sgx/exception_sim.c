@@ -4,6 +4,7 @@
 #include <openenclave/host.h>
 #include <openenclave/internal/registers.h>
 #include <openenclave/internal/sgx/td.h>
+#include <signal.h>
 #include <ucontext.h>
 #include "enclave.h"
 #include "exception.h"
@@ -76,6 +77,34 @@ static void _update_ssa_from_context(ucontext_t* context)
     ssa_gpr->exit_info.as_fields.valid = true;
 }
 
+static void _update_sgx_vector(ucontext_t* context, int sig_num)
+{
+    // Hardcode here must match g_vector_to_exception_code_mapping[] in
+    // enclave/core/sgx/exception.c
+    uint32_t vector = (uint32_t)-1;
+    switch (sig_num)
+    {
+        case SIGILL: // OE_EXCEPTION_ILLEGAL_INSTRUCTION
+            vector = 6;
+            break;
+        case SIGTRAP: // OE_EXCEPTION_BREAKPOIN
+            vector = 3;
+            break;
+        case SIGBUS: // OE_EXCEPTION_MISALIGNMENT
+            vector = 17;
+            break;
+        case SIGFPE: // OE_EXCEPTION_DIVIDE_BY_ZERO
+            vector = 0;
+            break;
+        case SIGSEGV: // OE_EXCEPTION_ACCESS_VIOLATION
+            vector = 13;
+            break;
+    }
+
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+    sgx_ssa_gpr_t* ssa_gpr = _get_ssa_gpr(tcs);
+    ssa_gpr->exit_info.as_fields.vector = vector;
+}
 static void _update_context_from_ssa(ucontext_t* context)
 {
     sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
@@ -112,7 +141,7 @@ static void _oe_eresume_sim(ucontext_t* context, void* enclave_fs)
 }
 
 /* Platform neutral exception handler */
-uint64_t oe_host_handle_exception_sim(ucontext_t* context)
+uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num)
 {
     void* enclave_fs = oe_get_fs_register_base();
     oe_sgx_td_t* td = (oe_sgx_td_t*)enclave_fs;
@@ -122,6 +151,7 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context)
     // Copy the data of context into ssa manually.
     _oe_aex_sim(context, host_fs);
     _update_ssa_from_context(context);
+    _update_sgx_vector(context, sig_num);
 
     // uint64_t exit_code    = (uint64_t)context->uc_mcontext.gregs[REG_RAX];
     uint64_t tcs_address = (uint64_t)context->uc_mcontext.gregs[REG_RBX];

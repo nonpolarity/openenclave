@@ -22,7 +22,7 @@ void oe_initialize_host_exception(void);
 uint64_t oe_host_handle_exception(oe_host_exception_context_t* context);
 
 /* Exception handler in simulation mode on Linux */
-uint64_t oe_host_handle_exception_sim(ucontext_t* context);
+uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num);
 
 /* Check if the current enclave is in  simulation mode. */
 bool is_simulate(oe_host_exception_context_t* context);

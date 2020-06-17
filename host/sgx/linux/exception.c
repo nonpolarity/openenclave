@@ -22,10 +22,6 @@
 #include "../asmdefs.h"
 #include "../enclave.h"
 
-#define PAGE_SIZE 4096
-#define TD_FROM_TCS (5 * PAGE_SIZE)
-#define SGX_EXIT_TYPE_SOFTWARE 0x6
-
 #if !defined(_NSIG) && defined(_SIG_MAXSIG)
 #define _NSIG (_SIG_MAXSIG - 1)
 #endif
@@ -51,7 +47,7 @@ static void _host_signal_handler(
     }
     else
     {
-        action = oe_host_handle_exception_sim(context);
+        action = oe_host_handle_exception_sim(context, sig_num);
     }
 
     if (action == OE_EXCEPTION_CONTINUE_EXECUTION)
