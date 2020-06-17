@@ -182,7 +182,8 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num)
 
     uint64_t enclave_start = enclave->addr;
     uint64_t enclave_end = enclave->addr + enclave->size;
-    if (context->Rip >= enclave_start && context->Rip < enclave_end)
+    uint64_t rip = (uint64_t)(context->uc_mcontext.gregs[REG_RIP]);
+    if (rip >= enclave_start && rip < enclave_end)
     {
         // Set the flag marks this thread is handling an enclave exception.
         thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
