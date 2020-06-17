@@ -5,10 +5,15 @@
 #include <openenclave/internal/registers.h>
 #include <openenclave/internal/sgx/td.h>
 #include <signal.h>
+#if defined(_WIN32)
+#else
 #include <ucontext.h>
+#endif
 #include "enclave.h"
 #include "exception.h"
 
+#if defined(_WIN32)
+#else
 bool is_simulate(oe_host_exception_context_t* context)
 {
     uint64_t tcs_address = context->rbx;
@@ -174,30 +179,41 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num)
         abort();
     }
 
-    // Set the flag marks this thread is handling an enclave exception.
-    thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
-
-    // Call into enclave first pass exception handler.
-    uint64_t arg_out = 0;
-    oe_result_t result =
-        oe_ecall(enclave, OE_ECALL_VIRTUAL_EXCEPTION_HANDLER, 0, &arg_out);
-
-    // Some info about the exception are updated in SSA.
-    // Copy the data back to context manually.
-    _update_context_from_ssa(context);
-
-    // Reset the flag
-    thread_data->flags &= (~_OE_THREAD_HANDLING_EXCEPTION);
-    if (result == OE_OK && arg_out == OE_EXCEPTION_CONTINUE_EXECUTION)
+    uint64_t enclave_start = enclave->addr;
+    uint64_t enclave_end = enclave->addr + enclave->size;
+    if (context->Rip >= enclave_start && context->Rip < enclave_end)
     {
-        // This exception has been handled by the enclave. Let's resume.
-        ret = OE_EXCEPTION_CONTINUE_EXECUTION;
+        // Set the flag marks this thread is handling an enclave exception.
+        thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
+
+        // Call into enclave first pass exception handler.
+        uint64_t arg_out = 0;
+        oe_result_t result =
+            oe_ecall(enclave, OE_ECALL_VIRTUAL_EXCEPTION_HANDLER, 0, &arg_out);
+
+        // Some info about the exception are updated in SSA.
+        // Copy the data back to context manually.
+        _update_context_from_ssa(context);
+
+        // Reset the flag
+        thread_data->flags &= (~_OE_THREAD_HANDLING_EXCEPTION);
+        if (result == OE_OK && arg_out == OE_EXCEPTION_CONTINUE_EXECUTION)
+        {
+            // This exception has been handled by the enclave. Let's resume.
+            ret = OE_EXCEPTION_CONTINUE_EXECUTION;
+        }
+        else
+        {
+            // Un-handled enclave exception happened.
+            // We continue the exception handler search as if it were a
+            // non-enclave exception.
+            ret = OE_EXCEPTION_CONTINUE_SEARCH;
+        }
     }
     else
     {
-        // Un-handled enclave exception happened.
-        // We continue the exception handler search as if it were a
-        // non-enclave exception.
+        // Not an exclave exception.
+        // Continue searching for other handlers.
         ret = OE_EXCEPTION_CONTINUE_SEARCH;
     }
 
@@ -208,3 +224,4 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num)
     _oe_eresume_sim(context, enclave_fs);
     return ret;
 }
+#endif
