@@ -41,7 +41,7 @@ static void _host_signal_handler(
 
     // Call platform neutral handler.
     uint64_t action;
-    if (!is_simulate(&host_context))
+    if (!is_simulation(&host_context))
     {
         action = oe_host_handle_exception(&host_context);
     }
