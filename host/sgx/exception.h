@@ -6,8 +6,7 @@
 
 #include <openenclave/bits/types.h>
 #include <openenclave/internal/calls.h>
-#if defined(_WIN32)
-#else
+#if defined(__linux__)
 #include <ucontext.h>
 #endif
 
@@ -25,12 +24,17 @@ void oe_initialize_host_exception(void);
 uint64_t oe_host_handle_exception(oe_host_exception_context_t* context);
 
 #if defined(_WIN32)
+/* Exception handler in simulation mode on Windows. */
+uint64_t oe_host_handle_exception_sim(struct _EXCEPTION_POINTERS* exception_pointers);
+
+/* Check if the current enclave is in simulation mode. */
+bool is_simulation(struct _EXCEPTION_POINTERS* exception_pointers);
 #else
-/* Exception handler in simulation mode on Linux */
+/* Exception handler in simulation mode on Linux. */
 uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num);
 
-/* Check if the current enclave is in  simulation mode. */
-bool is_simulate(oe_host_exception_context_t* context);
+/* Check if the current enclave is in simulation mode. */
+bool is_simulation(oe_host_exception_context_t* context);
 #endif
 
 #endif // _OE_HOST_EXCEPTION_H
