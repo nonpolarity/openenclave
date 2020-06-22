@@ -12,15 +12,14 @@
 #include "enclave.h"
 #include "exception.h"
 
-#if defined(_WIN32)
-bool is_simulation(struct _EXCEPTION_POINTERS* exception_pointers)
+bool is_simulation(oe_host_exception_context_t* context)
 {
-    PCONTEXT context = exception_pointers->ContextRecord;
-    uint64_t tcs_address = context->Rbx;
+    uint64_t tcs_address = context->rbx;
     oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
     return enclave->simulate;
 }
 
+#if defined(_WIN32)
 static void _oe_aex_sim(PCONTEXT context, void* host_fs)
 {
     // Update cssa as AEX does in real mode.
@@ -237,13 +236,6 @@ uint64_t oe_host_handle_exception_sim(struct _EXCEPTION_POINTERS* exception_poin
     return ret;
 }
 #else
-bool is_simulation(oe_host_exception_context_t* context)
-{
-    uint64_t tcs_address = context->rbx;
-    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
-    return enclave->simulate;
-}
-
 static void _oe_aex_sim(ucontext_t* context, void* host_fs)
 {
     // Update cssa as AEX does in real mode.
