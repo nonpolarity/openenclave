@@ -130,6 +130,10 @@ typedef struct _oe_enclave
 
     /* Manager for switchless calls */
     oe_switchless_call_manager_t* switchless_manager;
+
+    /* FS/GS segment registers of host side */
+    uint64_t host_fsbase;
+    uint64_t host_gsbase;
 } oe_enclave_t;
 
 /* Get the event for the given TCS */

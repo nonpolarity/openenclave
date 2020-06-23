@@ -5,8 +5,7 @@
 #include <openenclave/internal/registers.h>
 #include <openenclave/internal/sgx/td.h>
 #include <signal.h>
-#if defined(_WIN32)
-#else
+#if defined(__linux__)
 #include <ucontext.h>
 #endif
 #include "enclave.h"
@@ -14,32 +13,40 @@
 
 bool is_simulation(oe_host_exception_context_t* context)
 {
-    uint64_t tcs_address = context->rbx;
-    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
+    uint64_t tcs = context->rbx;
+    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs);
     return enclave->simulate;
 }
 
-#if defined(_WIN32)
-static void _oe_aex_sim(PCONTEXT context, void* host_fs)
+static void _oe_aex_sim(sgx_tcs_t* tcs, oe_enclave_t* enclave)
 {
     // Update cssa as AEX does in real mode.
-    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->Rbx);
     tcs->cssa++;
 
-    // This aex is delayed. Change the FS register to host side although this
-    // code is already on host side.
-    oe_set_fs_register_base(host_fs);
+    // Change the FS/GS segment registers to host side.
+    oe_set_fs_register_base((const void*)(enclave->host_fsbase));
+    oe_set_gs_register_base((const void*)(enclave->host_gsbase));
+}
+
+static void _oe_eresume_sim(sgx_tcs_t* tcs, oe_enclave_t* enclave)
+{
+    // Update cssa as ERESUME does in real mode.
+    tcs->cssa--;
+
+    // Change the FS/GS segment registers to enclave side.
+    uint64_t enclave_start = enclave->addr;
+    uint64_t enclave_fsbase = enclave_start + tcs->fsbase;
+    uint64_t enclave_gsbase = enclave_start + tcs->gsbase;
+    oe_set_fs_register_base((const void*)enclave_fsbase);
+    oe_set_gs_register_base((const void*)enclave_gsbase);
 }
 
 static sgx_ssa_gpr_t* _get_ssa_gpr(sgx_tcs_t* tcs)
 {
-    // why ossa != OE_SSA_FROM_TCS_BYTE_OFFSET?
     uint32_t cssa = tcs->cssa;
-    // uint64_t ossa = ((sgx_tcs_t*)tcs_address)->ossa;
-
-    // oe_sgx_td_t* td = (oe_sgx_td_t*)(tcs_address + TD_FROM_TCS);
-    uint64_t ssa_frame_size = 0;
-    //    uint64_t ssa_frame_size = td->base.__ssa_frame_size;
+    oe_sgx_td_t* td =
+        (oe_sgx_td_t*)((uint8_t*)tcs + OE_TD_FROM_TCS_BYTE_OFFSET);
+    uint64_t ssa_frame_size = td->base.__ssa_frame_size;
     if (ssa_frame_size == 0)
     {
         ssa_frame_size = OE_DEFAULT_SSA_FRAME_SIZE;
@@ -51,7 +58,7 @@ static sgx_ssa_gpr_t* _get_ssa_gpr(sgx_tcs_t* tcs)
     return (
         sgx_ssa_gpr_t*)(ssa_base_address + cssa * ssa_frame_size * OE_PAGE_SIZE - OE_SGX_GPR_BYTE_SIZE);
 }
-
+#if defined(_WIN32)
 static void _update_ssa_from_context(PCONTEXT context)
 {
     sgx_tcs_t* tcs = (sgx_tcs_t*)(context->Rbx);
@@ -81,11 +88,13 @@ static void _update_ssa_from_context(PCONTEXT context)
     ssa_gpr->exit_info.as_fields.valid = true;
 }
 
-static void _update_sgx_vector(PCONTEXT context, PEXCEPTION_RECORD exceptionrecord)
+static void _update_sgx_vector(
+    PCONTEXT context,
+    PEXCEPTION_RECORD exceptionrecord)
 {
     // Hardcode here must match g_vector_to_exception_code_mapping[] in
     // enclave/core/sgx/exception.c
-    uint32_t sgx_vector = (uint32_t)-1;
+    uint32_t sgx_vector = OE_EXCEPTION_UNKNOWN;
     DWORD exceptioncode = exceptionrecord->ExceptionCode;
     switch (exceptioncode)
     {
@@ -143,131 +152,7 @@ static void _update_context_from_ssa(PCONTEXT context)
     context->EFlags = (DWORD)ssa_gpr->rflags;
 }
 
-static void _oe_eresume_sim(PCONTEXT context, void* enclave_fs)
-{
-    // Update cssa as ERESUME does in real mode.
-    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->Rbx);
-    tcs->cssa--;
-
-    // Change the FS register to enclave side.
-    oe_set_fs_register_base(enclave_fs);
-}
-
-/* Platform neutral exception handler */
-uint64_t oe_host_handle_exception_sim(struct _EXCEPTION_POINTERS* exception_pointers)
-{
-    void* enclave_fs = oe_get_fs_register_base();
-    oe_sgx_td_t* td = (oe_sgx_td_t*)enclave_fs;
-    void* host_fs = (void*)td->simulate;
-
-    // Simulate the AEX in SGX hardware mode.
-    // Copy the data of context into ssa manually.
-    PCONTEXT context = exception_pointers->ContextRecord;
-    PEXCEPTION_RECORD exceptionrecord = exception_pointers->ExceptionRecord;
-    _oe_aex_sim(context, host_fs);
-    _update_ssa_from_context(context);
-    _update_sgx_vector(context, exceptionrecord);
-
-    // uint64_t exit_code    = (uint64_t)context->uc_mcontext.gregs[REG_RAX];
-    uint64_t tcs_address = (uint64_t)context->Rbx;
-    // uint64_t exit_address = (uint64_t)context->uc_mcontext.gregs[REG_RIP];
-
-    uint64_t ret = OE_EXCEPTION_CONTINUE_SEARCH;
-
-    // Check if the enclave exception happens inside the first pass
-    // exception handler.
-    oe_thread_binding_t* thread_data = oe_get_thread_binding();
-    if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
-    {
-        abort();
-    }
-
-    // Call-in enclave to handle the exception.
-    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
-    if (enclave == NULL)
-    {
-        abort();
-    }
-
-    uint64_t enclave_start = enclave->addr;
-    uint64_t enclave_end = enclave->addr + enclave->size;
-    uint64_t rip = (uint64_t)(context->Rip);
-    if (rip >= enclave_start && rip < enclave_end)
-    {
-        // Set the flag marks this thread is handling an enclave exception.
-        thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
-
-        // Call into enclave first pass exception handler.
-        uint64_t arg_out = 0;
-        oe_result_t result =
-            oe_ecall(enclave, OE_ECALL_VIRTUAL_EXCEPTION_HANDLER, 0, &arg_out);
-
-        // Some info about the exception are updated in SSA.
-        // Copy the data back to context manually.
-        _update_context_from_ssa(context);
-
-        // Reset the flag
-        thread_data->flags &= (~_OE_THREAD_HANDLING_EXCEPTION);
-        if (result == OE_OK && arg_out == OE_EXCEPTION_CONTINUE_EXECUTION)
-        {
-            // This exception has been handled by the enclave. Let's resume.
-            ret = OE_EXCEPTION_CONTINUE_EXECUTION;
-        }
-        else
-        {
-            // Un-handled enclave exception happened.
-            // We continue the exception handler search as if it were a
-            // non-enclave exception.
-            ret = OE_EXCEPTION_CONTINUE_SEARCH;
-        }
-    }
-    else
-    {
-        // Not an exclave exception.
-        // Continue searching for other handlers.
-        ret = OE_EXCEPTION_CONTINUE_SEARCH;
-    }
-
-    // Since aex was deferred, eresume must be advanced, to keep the status
-    // before and after oe_host_handle_exception_sim consistent, then stack
-    // protector for _host_signal_handler does not need to disable, either in
-    // simlation mode or in real mode.
-    _oe_eresume_sim(context, enclave_fs);
-    return ret;
-}
 #else
-static void _oe_aex_sim(ucontext_t* context, void* host_fs)
-{
-    // Update cssa as AEX does in real mode.
-    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
-    tcs->cssa++;
-
-    // This aex is delayed. Change the FS register to host side although this
-    // code is already on host side.
-    oe_set_fs_register_base(host_fs);
-}
-
-static sgx_ssa_gpr_t* _get_ssa_gpr(sgx_tcs_t* tcs)
-{
-    // why ossa != OE_SSA_FROM_TCS_BYTE_OFFSET?
-    uint32_t cssa = tcs->cssa;
-    // uint64_t ossa = ((sgx_tcs_t*)tcs_address)->ossa;
-
-    // oe_sgx_td_t* td = (oe_sgx_td_t*)(tcs_address + TD_FROM_TCS);
-    uint64_t ssa_frame_size = 0;
-    //    uint64_t ssa_frame_size = td->base.__ssa_frame_size;
-    if (ssa_frame_size == 0)
-    {
-        ssa_frame_size = OE_DEFAULT_SSA_FRAME_SIZE;
-    }
-
-    uint64_t ssa_base_address = (uint64_t)tcs + OE_SSA_FROM_TCS_BYTE_OFFSET;
-
-    // cssa always points to the unfilled ssa.
-    return (
-        sgx_ssa_gpr_t*)(ssa_base_address + cssa * ssa_frame_size * OE_PAGE_SIZE - OE_SGX_GPR_BYTE_SIZE);
-}
-
 static void _update_ssa_from_context(ucontext_t* context)
 {
     sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
@@ -301,7 +186,7 @@ static void _update_sgx_vector(ucontext_t* context, int sig_num)
 {
     // Hardcode here must match g_vector_to_exception_code_mapping[] in
     // enclave/core/sgx/exception.c
-    uint32_t sgx_vector = (uint32_t)-1;
+    uint32_t sgx_vector = OE_EXCEPTION_UNKNOWN;
     switch (sig_num)
     {
         case SIGFPE: // OE_EXCEPTION_DIVIDE_BY_ZERO
@@ -350,53 +235,55 @@ static void _update_context_from_ssa(ucontext_t* context)
     context->uc_mcontext.gregs[REG_RIP] = (greg_t)ssa_gpr->rip;
     context->uc_mcontext.gregs[REG_EFL] = (greg_t)ssa_gpr->rflags;
 }
-
-static void _oe_eresume_sim(ucontext_t* context, void* enclave_fs)
+#endif
+/* Platform dependent exception handler */
+#if defined(_WIN32)
+uint64_t oe_host_handle_exception_sim(
+    struct _EXCEPTION_POINTERS* exception_pointers)
 {
-    // Update cssa as ERESUME does in real mode.
-    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
-    tcs->cssa--;
+    PCONTEXT context = exception_pointers->ContextRecord;
+    PEXCEPTION_RECORD exceptionrecord = exception_pointers->ExceptionRecord;
 
-    // Change the FS register to enclave side.
-    oe_set_fs_register_base(enclave_fs);
-}
-
-/* Platform neutral exception handler */
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->Rbx);
+#else
 uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num)
 {
-    void* enclave_fs = oe_get_fs_register_base();
-    oe_sgx_td_t* td = (oe_sgx_td_t*)enclave_fs;
-    void* host_fs = (void*)td->simulate;
-
-    // Simulate the AEX in SGX hardware mode.
-    // Copy the data of context into ssa manually.
-    _oe_aex_sim(context, host_fs);
-    _update_ssa_from_context(context);
-    _update_sgx_vector(context, sig_num);
-
+    sgx_tcs_t* tcs = (sgx_tcs_t*)(context->uc_mcontext.gregs[REG_RBX]);
+#endif
     uint64_t ret = OE_EXCEPTION_CONTINUE_SEARCH;
 
-    // Check if the enclave exception happens inside the first pass
-    // exception handler.
-    oe_thread_binding_t* thread_data = oe_get_thread_binding();
-    if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
-    {
-        abort();
-    }
-
-    // Call-in enclave to handle the exception.
-    uint64_t tcs_address = (uint64_t)context->uc_mcontext.gregs[REG_RBX];
-    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs_address);
+    oe_enclave_t* enclave = oe_query_enclave_instance((void*)tcs);
     if (enclave == NULL)
     {
-        abort();
+        goto done;
     }
 
     uint64_t enclave_start = enclave->addr;
     uint64_t enclave_end = enclave->addr + enclave->size;
+#if defined(_WIN32)
+    uint64_t rip = (uint64_t)(context->Rip);
+#else
     uint64_t rip = (uint64_t)(context->uc_mcontext.gregs[REG_RIP]);
+#endif
     if (rip >= enclave_start && rip < enclave_end)
     {
+        // Simulate the AEX in SGX hardware mode.
+        // Copy the data of context into ssa manually.
+        _oe_aex_sim(tcs, enclave);
+        _update_ssa_from_context(context);
+#if defined(_WIN32)
+        _update_sgx_vector(context, exceptionrecord);
+#else
+        _update_sgx_vector(context, sig_num);
+#endif
+        // Check if the enclave exception happens inside the first pass
+        // exception handler.
+        oe_thread_binding_t* thread_data = oe_get_thread_binding();
+        if (thread_data->flags & _OE_THREAD_HANDLING_EXCEPTION)
+        {
+            abort();
+        }
+
         // Set the flag marks this thread is handling an enclave exception.
         thread_data->flags |= _OE_THREAD_HANDLING_EXCEPTION;
 
@@ -423,6 +310,9 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num)
             // non-enclave exception.
             ret = OE_EXCEPTION_CONTINUE_SEARCH;
         }
+
+        // Simulate the ERESUME in SGX hardware mode.
+        _oe_eresume_sim(tcs, enclave);
     }
     else
     {
@@ -431,11 +321,6 @@ uint64_t oe_host_handle_exception_sim(ucontext_t* context, int sig_num)
         ret = OE_EXCEPTION_CONTINUE_SEARCH;
     }
 
-    // Since aex was deferred, eresume must be advanced, to keep the status
-    // before and after oe_host_handle_exception_sim consistent, then stack
-    // protector for _host_signal_handler does not need to disable, either in
-    // simlation mode or in real mode.
-    _oe_eresume_sim(context, enclave_fs);
+done:
     return ret;
 }
-#endif

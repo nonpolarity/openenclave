@@ -281,6 +281,9 @@ if (OE_SGX)
   set_source_files_properties(sgx/exception_sim.c
                               PROPERTIES COMPILE_FLAGS -fno-stack-protector)
 
+  set_source_files_properties(
+    sgx/create.c PROPERTIES COMPILE_FLAGS -I${PROJECT_SOURCE_DIR}/include)
+
   # OS specific as well.
   if (UNIX)
     list(APPEND PLATFORM_HOST_ONLY_SRC sgx/linux/sgxquoteproviderloader.c)

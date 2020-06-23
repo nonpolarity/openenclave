@@ -1,6 +1,7 @@
 // Copyright (c) Open Enclave SDK contributors.
 // Licensed under the MIT License.
 
+#include <openenclave/internal/registers.h>
 #include "../strings.h"
 
 #if defined(__linux__)
@@ -815,6 +816,10 @@ oe_result_t oe_sgx_build_enclave(
     enclave->addr = enclave_addr;
     enclave->size = enclave_size;
     enclave->text = enclave_addr + oeimage.text_rva;
+
+    /* Save the FS/GS segment registers of host side */
+    enclave->host_fsbase = (uint64_t)oe_get_fs_register_base();
+    enclave->host_gsbase = (uint64_t)oe_get_gs_register_base();
 
     /* Patch image */
     OE_CHECK(oeimage.patch(&oeimage, enclave_size));

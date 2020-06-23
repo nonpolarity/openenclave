@@ -51,10 +51,14 @@ if (OE_SGX)
     sgx/elf.c
     sgx/load.c
     sgx/loadelf.c
+    sgx/registers.c
     sgx/sgxload.c
     sgx/sgxsign.c
     sgx/sgxtypes.c
     ../common/sgx/report_helper.c)
+
+  set_source_files_properties(
+    sgx/create.c PROPERTIES COMPILE_FLAGS -I${PROJECT_SOURCE_DIR}/include)
 
   if (WITH_EEID)
     list(APPEND PLATFORM_HOST_MR_SRC ../common/sgx/eeid.c)
