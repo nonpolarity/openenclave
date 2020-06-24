@@ -314,10 +314,9 @@ done:
     return result;
 }
 
-typedef void (*oe_log_callback)(void* context, const char* message);
-oe_result_t oe_set_log_callback(void* context, void* callback);
 static void* _oe_log_context = NULL;
 static oe_log_callback _oe_log_callback = NULL;
+
 oe_result_t oe_set_log_callback(void* context, void* callback)
 {
     if (oe_mutex_lock(&_log_lock) == OE_OK)
@@ -349,29 +348,26 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
     {
         initialize_log_config();
     }
+    if (_oe_log_callback)
+    {
+        (_oe_log_callback)(
+            _oe_log_context, is_enclave, time, usecs, level, message);
+    }
     if (_initialized)
     {
         if (level > _log_level)
             return;
     }
 
-    if (_oe_log_callback)
-    {
-        if (oe_mutex_lock(&_log_lock) == OE_OK)
-        {
-            (_oe_log_callback)(_oe_log_context, message);
-            oe_mutex_unlock(&_log_lock);
-            return;
-        }
-        else
-        {
-            fprintf(stderr, "Failed to call the logging callback function.\n");
-        }
-    }
-
     // Take the log file lock.
     if (oe_mutex_lock(&_log_lock) == OE_OK)
     {
+        if (_oe_log_callback)
+        {
+            (_oe_log_callback)(
+                _oe_log_context, is_enclave, time, usecs, level, message);
+        }
+
         if (_log_all_streams || !_use_log_file)
         {
             _write_message_to_stream(
