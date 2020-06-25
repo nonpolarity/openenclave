@@ -348,11 +348,18 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
     {
         initialize_log_config();
     }
+
     if (_oe_log_callback)
     {
-        (_oe_log_callback)(
-            _oe_log_context, is_enclave, time, usecs, level, message);
+        if (oe_mutex_lock(&_log_lock) == OE_OK)
+        {
+            (_oe_log_callback)(
+                _oe_log_context, is_enclave, time, usecs, level, message);
+            oe_mutex_unlock(&_log_lock);
+            return;
+        }
     }
+
     if (_initialized)
     {
         if (level > _log_level)
@@ -362,12 +369,6 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
     // Take the log file lock.
     if (oe_mutex_lock(&_log_lock) == OE_OK)
     {
-        if (_oe_log_callback)
-        {
-            (_oe_log_callback)(
-                _oe_log_context, is_enclave, time, usecs, level, message);
-        }
-
         if (_log_all_streams || !_use_log_file)
         {
             _write_message_to_stream(
