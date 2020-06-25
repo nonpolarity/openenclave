@@ -314,8 +314,8 @@ done:
     return result;
 }
 
-static void* _oe_log_context = NULL;
-static oe_log_callback _oe_log_callback = NULL;
+void* _oe_log_context = NULL;
+oe_log_callback _oe_log_callback = NULL;
 
 oe_result_t oe_set_log_callback(void* context, oe_log_callback callback)
 {
