@@ -350,8 +350,7 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
     }
     if (_oe_log_callback)
     {
-        (_oe_log_callback)(
-            _oe_log_context, is_enclave, time, usecs, level, message);
+        _oe_log_callback(_oe_log_context, message);
     }
     if (_initialized)
     {
@@ -364,8 +363,7 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
     {
         if (_oe_log_callback)
         {
-            (_oe_log_callback)(
-                _oe_log_context, is_enclave, time, usecs, level, message);
+            (_oe_log_callback)(_oe_log_context, message);
         }
 
         if (_log_all_streams || !_use_log_file)
