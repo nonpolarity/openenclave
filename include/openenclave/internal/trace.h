@@ -35,7 +35,7 @@ typedef void (*oe_log_callback)(
     long int usecs,
     oe_log_level_t level,
     const char* message);
-oe_result_t oe_set_log_callback(void* context, void* callback);
+oe_result_t oe_set_log_callback(void* context, oe_log_callback callback);
 
 oe_result_t oe_log_enclave_init(oe_enclave_t* enclave);
 void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message);

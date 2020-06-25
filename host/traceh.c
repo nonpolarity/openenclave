@@ -317,7 +317,7 @@ done:
 static void* _oe_log_context = NULL;
 static oe_log_callback _oe_log_callback = NULL;
 
-oe_result_t oe_set_log_callback(void* context, void* callback)
+oe_result_t oe_set_log_callback(void* context, oe_log_callback callback)
 {
     if (oe_mutex_lock(&_log_lock) == OE_OK)
     {
