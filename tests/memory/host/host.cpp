@@ -121,7 +121,7 @@ static void _malloc_boundary_test(oe_enclave_t* enclave, uint32_t flags)
     free(heapbuf);
 }
 
-#if !defined(OE_USE_DEBUG_MALLOC)
+//#if !defined(OE_USE_DEBUG_MALLOC)
 static void _malloc_fixed_size_fragment_test(oe_enclave_t* enclave)
 {
     test_malloc_fixed_size_fragment(enclave);
@@ -141,7 +141,7 @@ static void _malloc_random_size_fragment_test(oe_enclave_t* enclave, int seed)
     }
     test_malloc_random_size_fragment(enclave, chosen_seed);
 }
-#endif
+//#endif
 
 int main(int argc, const char* argv[])
 {
@@ -171,7 +171,7 @@ int main(int argc, const char* argv[])
     printf("===Starting malloc boundary test.\n");
     _malloc_boundary_test(enclave, flags);
 
-#if !defined(OE_USE_DEBUG_MALLOC)
+    //#if !defined(OE_USE_DEBUG_MALLOC)
     printf("===Starting malloc fixed size fragment test.\n");
     _malloc_fixed_size_fragment_test(enclave);
 
@@ -190,7 +190,7 @@ int main(int argc, const char* argv[])
         }
     }
     _malloc_random_size_fragment_test(enclave, seed);
-#endif
+    //#endif
 
     printf("===All tests pass.\n");
 
