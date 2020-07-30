@@ -3,6 +3,7 @@
 
 #include <openenclave/host.h>
 #include <openenclave/internal/tests.h>
+#include <openenclave/internal/trace.h>
 #include <iostream>
 #include <vector>
 #include "SampleApp_u.h"
@@ -35,8 +36,27 @@ int unsecure_str_patching(const char* src, char* dst, size_t dst_length)
     return 0;
 }
 
+void customized_log(
+    void* context,
+    bool is_enclave,
+    const char* time,
+    long int usecs,
+    oe_log_level_t level,
+    const char* message)
+{
+    OE_UNUSED(context);
+    OE_UNUSED(is_enclave);
+    OE_UNUSED(time);
+    OE_UNUSED(usecs);
+    OE_UNUSED(level);
+
+    printf("%s\n", message);
+}
+
 int main(int argc, const char* argv[])
 {
+    oe_log_set_callback(NULL, customized_log);
+
     oe_result_t result;
     oe_enclave_t* enclave = NULL;
 
