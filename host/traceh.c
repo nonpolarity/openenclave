@@ -331,6 +331,25 @@ oe_result_t oe_log_set_callback(void* context, oe_log_callback_t callback)
     return OE_UNEXPECTED;
 }
 
+#ifdef _WIN32
+int gettimeofday(struct timeval* tv, struct timezone* tzp)
+{
+    static const uint64_t EPOCH = ((uint64_t)116444736000000000ULL);
+    FILETIME file_time;
+    uint64_t time;
+
+    GetSystemTimePreciseAsFileTime(&file_time);
+    time = ((uint64_t)file_time.dwLowDateTime);
+    time += ((uint64_t)file_time.dwHighDateTime) << 32;
+    time -= EPOCH;
+
+    tv->tv_sec = (long)(time / 10000000L);
+    tv->tv_usec = (long)(time % 10000000L);
+    tv->tv_usec /= 10L;
+    return 0;
+}
+#endif
+
 // This is an expensive operation, it involves acquiring lock
 // and file operation.
 void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
@@ -338,11 +357,18 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
     // get timestamp for log
     struct tm t;
     time_t lt = time(NULL);
-    gmtime_r(&lt, &t);
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    lt = tv.tv_sec;
+#ifdef _WIN32
+    localtime_s(&t, &lt);
+#else
+    localtime_r(&lt, &t);
+#endif
 
     char time[20];
-    strftime(time, sizeof(time), "%Y-%m-%dT%H:%M:%S", &t);
-    long int usecs = 0;
+    strftime(time, sizeof(time), "%Y-%m-%d %H:%M:%S", &t);
+    long int usecs = tv.tv_usec;
 
     if (!_initialized)
     {
@@ -355,7 +381,13 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
         if (oe_log_callback)
         {
             (oe_log_callback)(
-                oe_log_context, is_enclave, time, usecs, level, message);
+                oe_log_context,
+                is_enclave,
+                time,
+                usecs,
+                level,
+                (uint64_t)oe_thread_self(),
+                message);
             goto done;
         }
 

@@ -8,18 +8,9 @@
 #include <openenclave/bits/result.h>
 #include <openenclave/bits/types.h>
 
-OE_EXTERNC_BEGIN
+#include <openenclave/trace.h>
 
-typedef enum _oe_log_level
-{
-    OE_LOG_LEVEL_NONE = 0,
-    OE_LOG_LEVEL_FATAL,
-    OE_LOG_LEVEL_ERROR,
-    OE_LOG_LEVEL_WARNING,
-    OE_LOG_LEVEL_INFO,
-    OE_LOG_LEVEL_VERBOSE,
-    OE_LOG_LEVEL_MAX
-} oe_log_level_t;
+OE_EXTERNC_BEGIN
 
 extern oe_log_level_t _log_level;
 
@@ -28,17 +19,6 @@ extern oe_log_level_t _log_level;
 #define OE_MAX_FILENAME_LEN 256U
 
 #if !defined(OE_BUILD_ENCLAVE)
-typedef void (*oe_log_callback_t)(
-    void* context,
-    bool is_enclave,
-    const char* time,
-    long int usecs,
-    oe_log_level_t level,
-    const char* message);
-oe_result_t oe_log_set_callback(void* context, oe_log_callback_t callback);
-extern void* oe_log_context;
-extern oe_log_callback_t oe_log_callback;
-
 oe_result_t oe_log_enclave_init(oe_enclave_t* enclave);
 void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message);
 #endif

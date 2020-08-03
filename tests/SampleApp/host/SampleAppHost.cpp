@@ -3,7 +3,7 @@
 
 #include <openenclave/host.h>
 #include <openenclave/internal/tests.h>
-#include <openenclave/internal/trace.h>
+#include <openenclave/trace.h>
 #include <iostream>
 #include <vector>
 #include "SampleApp_u.h"
@@ -42,6 +42,7 @@ void customized_log(
     const char* time,
     long int usecs,
     oe_log_level_t level,
+    uint64_t oe_thread,
     const char* message)
 {
     OE_UNUSED(context);
@@ -49,8 +50,9 @@ void customized_log(
     OE_UNUSED(time);
     OE_UNUSED(usecs);
     OE_UNUSED(level);
+    OE_UNUSED(oe_thread);
 
-    printf("%s\n", message);
+    printf("%s.%06ld, %lld, %s\n", time, usecs, oe_thread, message);
 }
 
 int main(int argc, const char* argv[])
