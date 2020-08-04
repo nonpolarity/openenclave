@@ -4,6 +4,7 @@
 #include <openenclave/corelibc/limits.h>
 #include <openenclave/internal/calls.h>
 #include <openenclave/internal/datetime.h>
+#include <openenclave/internal/localtime.h>
 #include <openenclave/internal/raise.h>
 #include <openenclave/internal/safecrt.h>
 #include <openenclave/internal/trace.h>
@@ -24,6 +25,8 @@
 #if defined(__linux__)
 #define sprintf_s(buffer, size, format, argument) \
     sprintf(buffer, format, argument)
+#else
+#include <openenclave/internal/time.h>
 #endif
 
 static char* _log_level_strings[OE_LOG_LEVEL_MAX] =
@@ -338,11 +341,19 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
     // get timestamp for log
     struct tm t;
     time_t lt = time(NULL);
-    gmtime_r(&lt, &t);
+    struct timeval tv;
+    gettimeofday(&tv, NULL);
+    lt = tv.tv_sec;
+    oe_localtime(&lt, &t);
 
-    char time[20];
-    strftime(time, sizeof(time), "%Y-%m-%dT%H:%M:%S", &t);
-    long int usecs = 0;
+#ifdef _WIN32
+    char time[25];
+    strftime(time, sizeof(time), "%Y-%m-%dT%H:%M:%S%z", &t);
+#else
+    char time[23];
+    strftime(time, sizeof(time), "%Y-%m-%dT%H:%M:%S%Z", &t);
+#endif
+    long int usecs = tv.tv_usec;
 
     if (!_initialized)
     {
@@ -355,7 +366,13 @@ void oe_log_message(bool is_enclave, oe_log_level_t level, const char* message)
         if (oe_log_callback)
         {
             (oe_log_callback)(
-                oe_log_context, is_enclave, time, usecs, level, message);
+                oe_log_context,
+                is_enclave,
+                time,
+                usecs,
+                level,
+                (uint64_t)oe_thread_self(),
+                message);
             goto done;
         }
 

@@ -46,14 +46,9 @@ static oe_result_t _get_date(unsigned int* date)
         OE_RAISE(OE_INVALID_PARAMETER);
 
     t = time(NULL);
+    if (oe_localtime(&t, &tm))
+        OE_RAISE(OE_FAILURE);
 
-#if defined(_MSC_VER)
-    if (localtime_s(&tm, &t) != 0)
-        OE_RAISE(OE_FAILURE);
-#else
-    if (localtime_r(&t, &tm) == NULL)
-        OE_RAISE(OE_FAILURE);
-#endif
     {
         char s[9];
         unsigned char b[8];
