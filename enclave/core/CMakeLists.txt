@@ -343,3 +343,66 @@ install_enclaves(
   ARCHIVE
   DESTINATION
   ${CMAKE_INSTALL_LIBDIR}/openenclave/enclave)
+
+
+
+
+# Create dmtoggle_obj OBJECT library to allow dmtoggle to be used as
+# the default allocator. See DEFAULT_ALLOCATOR in enclave/core/CMakeLists.txt.
+# Note: This scenario is possible only with the experimental USE_SNMALLOC
+# cmake option.
+add_enclave_library(
+  oedmtoggle_obj
+  OBJECT
+  dmtoggle.c)
+
+enclave_compile_options(
+  oedmtoggle_obj
+  PRIVATE
+  -I${PROJECT_SOURCE_DIR}/include
+  -Wno-conversion
+  -ftls-model=local-exec
+#  -nostdinc++
+  -nostdinc
+  -fPIE
+  -ffreestanding
+  ${TEE_C_FLAGS}
+  -fno-exceptions
+  -fvisibility=hidden)
+
+maybe_build_using_clangw(oedmtoggle_obj)
+
+# Create dmtoggle library to make dmtoggle available to the user
+# as a pluggable allocator.
+add_enclave_library(oedmtoggle STATIC)
+
+
+enclave_compile_options(
+  oedmtoggle
+  PRIVATE
+  -I${PROJECT_SOURCE_DIR}/include
+  -Wno-conversion
+  -ftls-model=local-exec
+#  -nostdinc++
+  -nostdinc
+  -fPIE
+  -ffreestanding
+  ${TEE_C_FLAGS}
+  -fno-exceptions
+  -fvisibility=hidden)
+
+
+
+
+enclave_link_libraries(oedmtoggle oedmtoggle_obj)
+maybe_build_using_clangw(oedmtoggle)
+
+install_enclaves(
+  TARGETS
+  oedmtoggle_obj
+  oedmtoggle
+  EXPORT
+  openenclave-targets
+  ARCHIVE
+  DESTINATION
+  ${CMAKE_INSTALL_LIBDIR}/openenclave/enclave)
