@@ -20,5 +20,6 @@ add_enclave(
   ../plugin/tests.c
   ${CMAKE_CURRENT_BINARY_DIR}/plugin_t.c)
 
+enclave_include_directories(plugin_enc PRIVATE ${PROJECT_SOURCE_DIR}/include)
 enclave_include_directories(plugin_enc PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-enclave_link_libraries(plugin_enc oeenclave oelibc)
+enclave_link_libraries(plugin_enc oemalloctoggle oeenclave oelibc)

@@ -343,3 +343,41 @@ install_enclaves(
   ARCHIVE
   DESTINATION
   ${CMAKE_INSTALL_LIBDIR}/openenclave/enclave)
+
+# Create malloctoggle_obj OBJECT library to allow malloctoggle to be used as
+# the default allocator. See DEFAULT_ALLOCATOR in enclave/core/CMakeLists.txt.
+# Note: This scenario is possible only with the experimental USE_SNMALLOC
+# cmake option.
+add_enclave_library(oemalloctoggle_obj OBJECT malloctoggle.c)
+
+enclave_compile_options(
+  oemalloctoggle_obj
+  PRIVATE
+  -I${PROJECT_SOURCE_DIR}/include
+  -Wno-conversion
+  -ftls-model=local-exec
+  #  -nostdinc++
+  -nostdinc
+  -fPIE
+  -ffreestanding
+  ${TEE_C_FLAGS}
+  -fno-exceptions
+  -fvisibility=hidden)
+
+maybe_build_using_clangw(oemalloctoggle_obj)
+
+# Create malloctoggle library to make malloctoggle available to the user
+# as a pluggable allocator.
+add_enclave_library(oemalloctoggle STATIC)
+enclave_link_libraries(oemalloctoggle oemalloctoggle_obj)
+maybe_build_using_clangw(oemalloctoggle)
+
+install_enclaves(
+  TARGETS
+  oemalloctoggle_obj
+  oemalloctoggle
+  EXPORT
+  openenclave-targets
+  ARCHIVE
+  DESTINATION
+  ${CMAKE_INSTALL_LIBDIR}/openenclave/enclave)
