@@ -442,6 +442,36 @@ size_t oe_debug_malloc_usable_size(void* ptr)
     return _get_header(ptr)->size;
 }
 
+void* __wrap_oe_debug_malloc(size_t size)
+{
+    return oe_allocator_malloc(size);
+}
+
+void __wrap_oe_debug_free(void* ptr)
+{
+    oe_allocator_free(ptr);
+}
+
+void* __wrap_oe_debug_calloc(size_t nmemb, size_t size)
+{
+    return oe_allocator_calloc(nmemb, size);
+}
+
+void* __wrap_oe_debug_realloc(void* ptr, size_t size)
+{
+    return oe_allocator_realloc(ptr, size);
+}
+
+int __wrap_oe_debug_posix_memalign(void** memptr, size_t alignment, size_t size)
+{
+    return oe_allocator_posix_memalign(memptr, alignment, size);
+}
+
+size_t __wrap_oe_debug_malloc_usable_size(void* ptr)
+{
+    return oe_allocator_malloc_usable_size(ptr);
+}
+
 void oe_debug_malloc_dump(void)
 {
     _dump(true);

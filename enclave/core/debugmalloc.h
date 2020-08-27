@@ -20,4 +20,19 @@ int oe_debug_posix_memalign(void** memptr, size_t alignment, size_t size);
 
 size_t oe_debug_malloc_usable_size(void* ptr);
 
+void* __wrap_oe_debug_malloc(size_t size);
+
+void __wrap_oe_debug_free(void* ptr);
+
+void* __wrap_oe_debug_calloc(size_t nmemb, size_t size);
+
+void* __wrap_oe_debug_realloc(void* ptr, size_t size);
+
+int __wrap_oe_debug_posix_memalign(
+    void** memptr,
+    size_t alignment,
+    size_t size);
+
+size_t __wrap_oe_debug_malloc_usable_size(void* ptr);
+
 #endif /* _OE_DEBUG_MALLOC_H */
