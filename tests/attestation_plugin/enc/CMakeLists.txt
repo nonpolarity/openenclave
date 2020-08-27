@@ -21,4 +21,6 @@ add_enclave(
   ${CMAKE_CURRENT_BINARY_DIR}/plugin_t.c)
 
 enclave_include_directories(plugin_enc PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
+target_link_options(plugin_enc PRIVATE
+ -Wl,--wrap=oe_debug_malloc -Wl,--wrap=oe_debug_free -Wl,--wrap=oe_debug_calloc -Wl,--wrap=oe_debug_realloc -Wl,--wrap=oe_debug_posix_memalign -Wl,--wrap=oe_debug_malloc_usable_size)
 enclave_link_libraries(plugin_enc oeenclave oelibc)
