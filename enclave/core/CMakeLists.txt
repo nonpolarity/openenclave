@@ -1,6 +1,7 @@
 # Copyright (c) Open Enclave SDK contributors.
 # Licensed under the MIT License.
 
+set(CMAKE_VERBOSE_MAKEFILE on)
 set(OE_INCLUDE_DIR ${PROJECT_SOURCE_DIR}/include)
 set(EDL_DIR ${PROJECT_SOURCE_DIR}/include/openenclave/edl)
 
@@ -148,6 +149,320 @@ else ()
   set(DEFAULT_ALLOCATOR_LIB oedlmalloc_obj)
 endif ()
 
+add_enclave_library(oedebugmalloc_obj OBJECT debugmalloc.c)
+
+set_property(SOURCE ${W_NO_CONVERSION} APPEND_STRING PROPERTY COMPILE_FLAGS
+                                                              "-Wno-conversion")
+
+set_property(SOURCE ${NEEDS_STDC_NAMES} APPEND_STRING
+             PROPERTY COMPILE_FLAGS " -I${CORELIBC_INCLUDES}")
+set_property(SOURCE ${NEEDS_STDC_NAMES} APPEND PROPERTY COMPILE_DEFINITIONS
+                                                        OE_NEED_STDC_NAMES)
+
+maybe_build_using_clangw(oedebugmalloc_obj)
+
+add_enclave_dependencies(oedebugmalloc_obj core_trusted_edl)
+if (OE_SGX)
+  add_enclave_dependencies(oedebugmalloc_obj platform_trusted_edl)
+endif ()
+
+enclave_include_directories(oedebugmalloc_obj PRIVATE
+                            ${CMAKE_CURRENT_BINARY_DIR})
+
+enclave_link_libraries(oedebugmalloc_obj PUBLIC oe_includes)
+if (OE_TRUSTZONE)
+  enclave_link_libraries(oedebugmalloc_obj PUBLIC oelibutee_includes)
+
+  # OP-TEE header 3rdparty/optee/libutee/liboeutee/user_ta_header.h
+  # includes stdint.h. As a result all OP-TEE needs the corelibc headers
+  # in its include path.
+  enclave_include_directories(
+    oedebugmalloc_obj PRIVATE
+    ${PROJECT_SOURCE_DIR}/include/openenclave/corelibc)
+endif ()
+
+message("FUCK")
+target_link_libraries(oedebugmalloc_obj PUBLIC oe_includes
+                                               ${DEFAULT_ALLOCATOR_LIB})
+
+if (CMAKE_C_COMPILER_ID MATCHES GNU)
+  enclave_compile_options(oedebugmalloc_obj PRIVATE -Wjump-misses-init)
+endif ()
+
+if (CMAKE_C_COMPILER_ID MATCHES GNU)
+  enclave_compile_options(oedebugmalloc_obj PRIVATE -Wjump-misses-init)
+endif ()
+
+# NOTE: All code inside an enclave must be compile with "position
+# independent executable" semantics via -fPIE, and linked with -pie.
+# Hence the PUBLIC (and INTERFACE) use of these flags instead of -fPIC
+# or POSITION_INDEPENDENT_CODE, which would use the incorrect flag as
+# enclaves actually are executables.
+if (OE_SGX)
+  enclave_compile_options(
+    oedebugmalloc_obj
+    PUBLIC
+    -fPIE
+    -nostdinc
+    -fstack-protector-strong
+    -fvisibility=hidden
+    # Preserve frame-pointer in Release mode to enable oe_backtrace.
+    -fno-omit-frame-pointer
+    # Put each function or data in its own section.
+    # This allows aggressively eliminating unused code.
+    -ffunction-sections
+    -fdata-sections
+    # "The default without -fpic is 'initial-exec'; with -fpic the
+    # default is 'global-dynamic'."
+    # https://gcc.gnu.org/onlinedocs/gcc/Code-Gen-Options.html#Code-Gen-Options
+    #
+    # Enclaves are linked using -pie and therefore global-dynamic is
+    # too conservative. Of the two efficient static thread-local
+    # storage models, inital-exec and local-exec, we choose the most
+    # optimal one.
+    -ftls-model=local-exec
+    # Disable builtin functions for enclaves, but only in our build.
+    #
+    # We do this to work-around compiler bugs (see #1429) due to our
+    # redefinition of `memmove` to `oe_memmove` causing an undefined
+    # symbol error when a built-in was inlined. However, we only do
+    # this for our code as we don't want to force these flags on the
+    # user. There are valid reasons for an end user to use built-ins.
+    $<BUILD_INTERFACE:-fno-builtin-malloc
+    -fno-builtin-calloc
+    -fno-builtin>)
+elseif (OE_TRUSTZONE)
+  enclave_compile_options(oedebugmalloc_obj PUBLIC -fvisibility=hidden
+                          ${OE_TZ_TA_C_FLAGS})
+endif ()
+
+enclave_compile_options(oedebugmalloc_obj INTERFACE
+                        $<$<COMPILE_LANGUAGE:CXX>:-nostdinc++>)
+
+enclave_enable_code_coverage(oedebugmalloc_obj)
+
+enclave_compile_definitions(
+  oedebugmalloc_obj
+  PUBLIC
+  OE_BUILD_ENCLAVE
+  # NOTE: This definition is public to the rest of our project's
+  # targets, but should not yet be exposed to consumers of our
+  # package.
+  $<BUILD_INTERFACE:OE_API_VERSION=2>)
+
+if (USE_DEBUG_MALLOC)
+  enclave_compile_definitions(oedebugmalloc_obj PRIVATE OE_USE_DEBUG_MALLOC)
+  message(
+    "USE_DEBUG_MALLOC is set, building oedebugmalloc_obj with memory leak detection."
+  )
+endif ()
+
+if (WITH_EEID)
+  enclave_compile_definitions(oedebugmalloc_obj PRIVATE
+                              OE_WITH_EXPERIMENTAL_EEID)
+endif ()
+
+# Interface link flags for enclaves.
+if (OE_SGX)
+  enclave_link_libraries(
+    oedebugmalloc_obj
+    INTERFACE
+    -nostdlib
+    -nodefaultlibs
+    -nostartfiles
+    -Wl,--no-undefined,-Bstatic,-Bsymbolic,--export-dynamic,-pie,--build-id
+    -Wl,-z,noexecstack
+    -Wl,-z,now
+    -Wl,-gc-sections)
+elseif (OE_TRUSTZONE)
+  enclave_link_libraries(
+    oedebugmalloc_obj
+    INTERFACE
+    -nostdlib
+    -nodefaultlibs
+    -nostartfiles
+    --no-undefined
+    -pie
+    --sort-section=alignment
+    "-z max-page-size=4096"
+    --as-needed)
+endif ()
+
+set_enclave_property(TARGET oedebugmalloc_obj PROPERTY ARCHIVE_OUTPUT_DIRECTORY
+                     ${OE_LIBDIR}/openenclave/enclave)
+
+message("${OE_LIBDIR}/openenclave/enclave")
+message("${CMAKE_INSTALL_LIBDIR}/openenclave/enclave")
+install_enclaves(
+  TARGETS
+  oedebugmalloc_obj
+  EXPORT
+  openenclave-targets
+  ARCHIVE
+  DESTINATION
+  ${CMAKE_INSTALL_LIBDIR}/openenclave/enclave)
+
+add_enclave_library(oenodebugmalloc_obj OBJECT nodebugmalloc.c)
+
+set_property(SOURCE ${W_NO_CONVERSION} APPEND_STRING PROPERTY COMPILE_FLAGS
+                                                              "-Wno-conversion")
+
+set_property(SOURCE ${NEEDS_STDC_NAMES} APPEND_STRING
+             PROPERTY COMPILE_FLAGS " -I${CORELIBC_INCLUDES}")
+set_property(SOURCE ${NEEDS_STDC_NAMES} APPEND PROPERTY COMPILE_DEFINITIONS
+                                                        OE_NEED_STDC_NAMES)
+
+maybe_build_using_clangw(oenodebugmalloc_obj)
+
+add_enclave_dependencies(oenodebugmalloc_obj core_trusted_edl)
+if (OE_SGX)
+  add_enclave_dependencies(oenodebugmalloc_obj platform_trusted_edl)
+endif ()
+
+enclave_include_directories(oenodebugmalloc_obj PRIVATE
+                            ${CMAKE_CURRENT_BINARY_DIR})
+
+enclave_link_libraries(oenodebugmalloc_obj PUBLIC oe_includes)
+if (OE_TRUSTZONE)
+  enclave_link_libraries(oenodebugmalloc_obj PUBLIC oelibutee_includes)
+
+  # OP-TEE header 3rdparty/optee/libutee/liboeutee/user_ta_header.h
+  # includes stdint.h. As a result all OP-TEE needs the corelibc headers
+  # in its include path.
+  enclave_include_directories(
+    oenodebugmalloc_obj PRIVATE
+    ${PROJECT_SOURCE_DIR}/include/openenclave/corelibc)
+endif ()
+
+message("FUCK")
+target_link_libraries(oenodebugmalloc_obj PUBLIC oe_includes
+                                                 ${DEFAULT_ALLOCATOR_LIB})
+
+if (CMAKE_C_COMPILER_ID MATCHES GNU)
+  enclave_compile_options(oenodebugmalloc_obj PRIVATE -Wjump-misses-init)
+endif ()
+
+if (CMAKE_C_COMPILER_ID MATCHES GNU)
+  enclave_compile_options(oenodebugmalloc_obj PRIVATE -Wjump-misses-init)
+endif ()
+
+# NOTE: All code inside an enclave must be compile with "position
+# independent executable" semantics via -fPIE, and linked with -pie.
+# Hence the PUBLIC (and INTERFACE) use of these flags instead of -fPIC
+# or POSITION_INDEPENDENT_CODE, which would use the incorrect flag as
+# enclaves actually are executables.
+if (OE_SGX)
+  enclave_compile_options(
+    oenodebugmalloc_obj
+    PUBLIC
+    -fPIE
+    -nostdinc
+    -fstack-protector-strong
+    -fvisibility=hidden
+    # Preserve frame-pointer in Release mode to enable oe_backtrace.
+    -fno-omit-frame-pointer
+    # Put each function or data in its own section.
+    # This allows aggressively eliminating unused code.
+    -ffunction-sections
+    -fdata-sections
+    # "The default without -fpic is 'initial-exec'; with -fpic the
+    # default is 'global-dynamic'."
+    # https://gcc.gnu.org/onlinedocs/gcc/Code-Gen-Options.html#Code-Gen-Options
+    #
+    # Enclaves are linked using -pie and therefore global-dynamic is
+    # too conservative. Of the two efficient static thread-local
+    # storage models, inital-exec and local-exec, we choose the most
+    # optimal one.
+    -ftls-model=local-exec
+    # Disable builtin functions for enclaves, but only in our build.
+    #
+    # We do this to work-around compiler bugs (see #1429) due to our
+    # redefinition of `memmove` to `oe_memmove` causing an undefined
+    # symbol error when a built-in was inlined. However, we only do
+    # this for our code as we don't want to force these flags on the
+    # user. There are valid reasons for an end user to use built-ins.
+    $<BUILD_INTERFACE:-fno-builtin-malloc
+    -fno-builtin-calloc
+    -fno-builtin>)
+elseif (OE_TRUSTZONE)
+  enclave_compile_options(oenodebugmalloc_obj PUBLIC -fvisibility=hidden
+                          ${OE_TZ_TA_C_FLAGS})
+endif ()
+
+enclave_compile_options(oenodebugmalloc_obj INTERFACE
+                        $<$<COMPILE_LANGUAGE:CXX>:-nostdinc++>)
+
+enclave_enable_code_coverage(oenodebugmalloc_obj)
+
+enclave_compile_definitions(
+  oenodebugmalloc_obj
+  PUBLIC
+  OE_BUILD_ENCLAVE
+  # NOTE: This definition is public to the rest of our project's
+  # targets, but should not yet be exposed to consumers of our
+  # package.
+  $<BUILD_INTERFACE:OE_API_VERSION=2>)
+
+if (USE_DEBUG_MALLOC)
+  enclave_compile_definitions(oenodebugmalloc_obj PRIVATE OE_USE_DEBUG_MALLOC)
+  message(
+    "USE_DEBUG_MALLOC is set, building oenodebugmalloc_obj with memory leak detection."
+  )
+endif ()
+
+if (WITH_EEID)
+  enclave_compile_definitions(oenodebugmalloc_obj PRIVATE
+                              OE_WITH_EXPERIMENTAL_EEID)
+endif ()
+
+# Interface link flags for enclaves.
+if (OE_SGX)
+  enclave_link_libraries(
+    oenodebugmalloc_obj
+    INTERFACE
+    -nostdlib
+    -nodefaultlibs
+    -nostartfiles
+    -Wl,--no-undefined,-Bstatic,-Bsymbolic,--export-dynamic,-pie,--build-id
+    -Wl,-z,noexecstack
+    -Wl,-z,now
+    -Wl,-gc-sections)
+elseif (OE_TRUSTZONE)
+  enclave_link_libraries(
+    oenodebugmalloc_obj
+    INTERFACE
+    -nostdlib
+    -nodefaultlibs
+    -nostartfiles
+    --no-undefined
+    -pie
+    --sort-section=alignment
+    "-z max-page-size=4096"
+    --as-needed)
+endif ()
+
+set_enclave_property(TARGET oenodebugmalloc_obj PROPERTY
+                     ARCHIVE_OUTPUT_DIRECTORY ${OE_LIBDIR}/openenclave/enclave)
+
+add_enclave_library(oenodebugmalloc STATIC)
+enclave_link_libraries(oenodebugmalloc oenodebugmalloc_obj)
+maybe_build_using_clangw(oenodebugmalloc)
+
+set_enclave_property(TARGET oenodebugmalloc PROPERTY ARCHIVE_OUTPUT_DIRECTORY
+                     ${OE_LIBDIR}/openenclave/enclave)
+
+message("${OE_LIBDIR}/openenclave/enclave")
+message("${CMAKE_INSTALL_LIBDIR}/openenclave/enclave")
+install_enclaves(
+  TARGETS
+  oenodebugmalloc_obj
+  oenodebugmalloc
+  EXPORT
+  openenclave-targets
+  ARCHIVE
+  DESTINATION
+  ${CMAKE_INSTALL_LIBDIR}/openenclave/enclave)
+
 add_enclave_library(
   oecore
   STATIC
@@ -160,7 +475,7 @@ add_enclave_library(
   atexit.c
   backtrace.c
   ctype.c
-  debugmalloc.c
+  #  debugmalloc.c
   hexdump.c
   hostcalls.c
   intstr.c
@@ -218,7 +533,9 @@ if (OE_TRUSTZONE)
     oecore PRIVATE ${PROJECT_SOURCE_DIR}/include/openenclave/corelibc)
 endif ()
 
-enclave_link_libraries(oecore PUBLIC oe_includes ${DEFAULT_ALLOCATOR_LIB})
+message("FUCK")
+target_link_libraries(oecore PUBLIC oe_includes ${DEFAULT_ALLOCATOR_LIB})
+target_link_libraries(oecore PUBLIC oedebugmalloc_obj)
 
 if (CMAKE_C_COMPILER_ID MATCHES GNU)
   enclave_compile_options(oecore PRIVATE -Wjump-misses-init)
@@ -335,72 +652,12 @@ endif ()
 
 set_enclave_property(TARGET oecore PROPERTY ARCHIVE_OUTPUT_DIRECTORY
                      ${OE_LIBDIR}/openenclave/enclave)
+
+message("${OE_LIBDIR}/openenclave/enclave")
+message("${CMAKE_INSTALL_LIBDIR}/openenclave/enclave")
 install_enclaves(
   TARGETS
   oecore
-  EXPORT
-  openenclave-targets
-  ARCHIVE
-  DESTINATION
-  ${CMAKE_INSTALL_LIBDIR}/openenclave/enclave)
-
-
-
-
-# Create dmtoggle_obj OBJECT library to allow dmtoggle to be used as
-# the default allocator. See DEFAULT_ALLOCATOR in enclave/core/CMakeLists.txt.
-# Note: This scenario is possible only with the experimental USE_SNMALLOC
-# cmake option.
-add_enclave_library(
-  oedmtoggle_obj
-  OBJECT
-  dmtoggle.c)
-
-enclave_compile_options(
-  oedmtoggle_obj
-  PRIVATE
-  -I${PROJECT_SOURCE_DIR}/include
-  -Wno-conversion
-  -ftls-model=local-exec
-#  -nostdinc++
-  -nostdinc
-  -fPIE
-  -ffreestanding
-  ${TEE_C_FLAGS}
-  -fno-exceptions
-  -fvisibility=hidden)
-
-maybe_build_using_clangw(oedmtoggle_obj)
-
-# Create dmtoggle library to make dmtoggle available to the user
-# as a pluggable allocator.
-add_enclave_library(oedmtoggle STATIC)
-
-
-enclave_compile_options(
-  oedmtoggle
-  PRIVATE
-  -I${PROJECT_SOURCE_DIR}/include
-  -Wno-conversion
-  -ftls-model=local-exec
-#  -nostdinc++
-  -nostdinc
-  -fPIE
-  -ffreestanding
-  ${TEE_C_FLAGS}
-  -fno-exceptions
-  -fvisibility=hidden)
-
-
-
-
-enclave_link_libraries(oedmtoggle oedmtoggle_obj)
-maybe_build_using_clangw(oedmtoggle)
-
-install_enclaves(
-  TARGETS
-  oedmtoggle_obj
-  oedmtoggle
   EXPORT
   openenclave-targets
   ARCHIVE

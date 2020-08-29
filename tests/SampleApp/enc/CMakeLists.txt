@@ -22,4 +22,6 @@ add_enclave(
 enclave_include_directories(SampleApp PRIVATE ${CMAKE_CURRENT_BINARY_DIR}
                             ${CMAKE_CURRENT_SOURCE_DIR})
 
-enclave_link_libraries(SampleApp oedmtoggle oelibc)
+target_link_options(SampleApp PRIVATE -Wl,-Map=output.map)
+
+enclave_link_libraries(SampleApp oesnmalloc oelibc)
