@@ -10,25 +10,25 @@
 #include <openenclave/internal/safecrt.h>
 #include <openenclave/internal/utils.h>
 
-#ifdef OE_USE_DEBUG_MALLOC
+#ifdef OE_USE_DEBUG_oe_debug_malloc
 
 #include <openenclave/advanced/debugmalloc.h>
 
-#define MALLOC oe_debug_malloc
-#define FREE oe_debug_free
-#define CALLOC oe_debug_calloc
-#define REALLOC oe_debug_realloc
-#define POSIX_MEMALIGN oe_debug_posix_memalign
-#define MALLOC_USABLE_SIZE oe_debug_malloc_usable_size
+#define oe_debug_malloc oe_debug_malloc
+#define oe_debug_free oe_debug_free
+#define oe_debug_calloc oe_debug_calloc
+#define oe_debug_realloc oe_debug_realloc
+#define oe_debug_posix_memalign oe_debug_posix_memalign
+#define oe_debug_malloc_usable_size oe_debug_malloc_usable_size
 
 #else
 
-#define MALLOC oe_allocator_malloc
-#define FREE oe_allocator_free
-#define CALLOC oe_allocator_calloc
-#define REALLOC oe_allocator_realloc
-#define POSIX_MEMALIGN oe_allocator_posix_memalign
-#define MALLOC_USABLE_SIZE oe_allocator_malloc_usable_size
+#define oe_debug_malloc oe_allocator_malloc
+#define oe_debug_free oe_allocator_free
+#define oe_debug_calloc oe_allocator_calloc
+#define oe_debug_realloc oe_allocator_realloc
+#define oe_debug_posix_memalign oe_allocator_posix_memalign
+#define oe_debug_malloc_usable_size oe_allocator_malloc_usable_size
 
 #endif
 
@@ -45,7 +45,7 @@ void oe_set_allocation_failure_callback(
 
 void* oe_malloc(size_t size)
 {
-    void* p = MALLOC(size);
+    void* p = oe_debug_malloc(size);
 
     if (!p && size)
     {
@@ -58,12 +58,12 @@ void* oe_malloc(size_t size)
 
 void oe_free(void* ptr)
 {
-    FREE(ptr);
+    oe_debug_free(ptr);
 }
 
 void* oe_calloc(size_t nmemb, size_t size)
 {
-    void* p = CALLOC(nmemb, size);
+    void* p = oe_debug_calloc(nmemb, size);
 
     if (!p && nmemb && size)
     {
@@ -76,7 +76,7 @@ void* oe_calloc(size_t nmemb, size_t size)
 
 void* oe_realloc(void* ptr, size_t size)
 {
-    void* p = REALLOC(ptr, size);
+    void* p = oe_debug_realloc(ptr, size);
 
     if (!p && size)
     {
@@ -102,7 +102,7 @@ void* oe_memalign(size_t alignment, size_t size)
 
 int oe_posix_memalign(void** memptr, size_t alignment, size_t size)
 {
-    int rc = POSIX_MEMALIGN(memptr, alignment, size);
+    int rc = oe_debug_posix_memalign(memptr, alignment, size);
 
     if (rc != 0 && size)
     {
@@ -115,5 +115,5 @@ int oe_posix_memalign(void** memptr, size_t alignment, size_t size)
 
 size_t oe_malloc_usable_size(void* ptr)
 {
-    return MALLOC_USABLE_SIZE(ptr);
+    return oe_debug_malloc_usable_size(ptr);
 }

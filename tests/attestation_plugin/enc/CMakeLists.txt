@@ -22,4 +22,8 @@ add_enclave(
 
 enclave_include_directories(plugin_enc PRIVATE ${PROJECT_SOURCE_DIR}/include)
 enclave_include_directories(plugin_enc PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-enclave_link_libraries(plugin_enc oeenclave oelibc)
+
+#target_link_options(plugin_enc PRIVATE -Wl,-Map=output.map -Wl,--require-defined=oe_debug_mallloc)
+target_link_options(plugin_enc PRIVATE -Wl,-Map=output.map)
+
+enclave_link_libraries(plugin_enc oenodebugmalloc oeenclave oelibc)

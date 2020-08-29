@@ -1,8 +1,8 @@
 // Copyright (c) Open Enclave SDK contributors.
 // Licensed under the MIT License.
 
-#include "debugmalloc.h"
 #include <openenclave/advanced/allocator.h>
+#include <openenclave/advanced/debugmalloc.h>
 #include <openenclave/corelibc/errno.h>
 #include <openenclave/enclave.h>
 #include <openenclave/internal/backtrace.h>
@@ -14,7 +14,7 @@
 #include <openenclave/internal/types.h>
 #include <openenclave/internal/utils.h>
 
-#if defined(OE_USE_DEBUG_MALLOC)
+//#if defined(OE_USE_DEBUG_MALLOC)
 
 /*
 **==============================================================================
@@ -470,4 +470,4 @@ size_t oe_debug_malloc_check(void)
     return count;
 }
 
-#endif /* defined(OE_USE_DEBUG_MALLOC) */
+//#endif /* defined(OE_USE_DEBUG_MALLOC) */
