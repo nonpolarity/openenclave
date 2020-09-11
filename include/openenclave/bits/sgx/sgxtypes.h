@@ -112,6 +112,26 @@ OE_CHECK_SIZE(sizeof(sgx_attributes_t), 16);
 /*
 **==============================================================================
 **
+** sgx_config_svn_t and sgx_config_id_t.
+**
+**==============================================================================
+*/
+
+#define SGX_CONFIGID_SIZE 64
+typedef uint16_t sgx_config_svn_t;
+typedef uint8_t sgx_config_id_t[SGX_CONFIGID_SIZE];
+
+/*
+**==============================================================================
+**
+** sgx_report_t
+**
+**==============================================================================
+*/
+
+/*
+**==============================================================================
+**
 ** sgx_sigstruct_t
 **
 **==============================================================================
@@ -272,20 +292,22 @@ void __sgx_dump_sigstruct(const sgx_sigstruct_t* p);
 
 typedef struct _sgx_secs
 {
-    uint64_t size;          /* 0 */
-    uint64_t base;          /* 8 */
-    uint32_t ssaframesize;  /* 16 */
-    uint32_t misc_select;   /* 20 */
-    uint8_t reserved1[24];  /* 24 */
-    uint64_t flags;         /* 48 */
-    uint64_t xfrm;          /* 56 */
-    uint32_t mrenclave[8];  /* 64 */
-    uint8_t reserved2[32];  /* 96 */
-    uint32_t mrsigner[8];   /* 128 */
-    uint8_t reserved3[96];  /* 160 */
-    uint16_t isvvprodid;    /* 256 */
-    uint16_t isvsvn;        /* 258 */
-    uint8_t reserved[3836]; /* 260 */
+    uint64_t size;               /* 0 */
+    uint64_t base;               /* 8 */
+    uint32_t ssaframesize;       /* 16 */
+    uint32_t misc_select;        /* 20 */
+    uint8_t reserved1[24];       /* 24 */
+    uint64_t flags;              /* 48 */
+    uint64_t xfrm;               /* 56 */
+    uint32_t mrenclave[8];       /* 64 */
+    uint8_t reserved2[32];       /* 96 */
+    uint32_t mrsigner[8];        /* 128 */
+    uint8_t reserved3[32];       /* 160 */
+    sgx_config_id_t config_id;   /* 192 */
+    uint16_t isvvprodid;         /* 256 */
+    uint16_t isvsvn;             /* 258 */
+    sgx_config_svn_t config_svn; /* 260 */
+    uint8_t reserved[3834];      /* 262 */
 } sgx_secs_t;
 
 OE_CHECK_SIZE(sizeof(sgx_secs_t), 4096);
@@ -562,14 +584,6 @@ typedef struct _sgx_report_data
 
 OE_CHECK_SIZE(sizeof(sgx_report_data_t), 64);
 
-/*
-**==============================================================================
-**
-** sgx_report_t
-**
-**==============================================================================
-*/
-
 typedef struct _sgx_report_body
 {
     /* (0) CPU security version */
@@ -594,7 +608,10 @@ typedef struct _sgx_report_body
     uint8_t mrsigner[OE_SHA256_SIZE];
 
     /* (160) */
-    uint8_t reserved3[96];
+    uint8_t reserved3[32];
+
+    /* (192) */
+    sgx_config_id_t config_id;
 
     /* (256) Enclave product ID */
     uint16_t isvprodid;
@@ -602,8 +619,11 @@ typedef struct _sgx_report_body
     /* (258) Enclave security version */
     uint16_t isvsvn;
 
-    /* (260) Reserved */
-    uint8_t reserved4[60];
+    /* (260) */
+    sgx_config_svn_t config_svn;
+
+    /* (262) Reserved */
+    uint8_t reserved4[58];
 
     /* (320) User report data */
     sgx_report_data_t report_data;
