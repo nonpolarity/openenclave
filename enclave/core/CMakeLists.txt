@@ -343,6 +343,9 @@ enclave_compile_definitions(oedebugmalloc PUBLIC OE_USE_DEBUG_MALLOC)
 
 enclave_link_libraries(oedebugmalloc oecore)
 
+set_enclave_property(TARGET oedebugmalloc PROPERTY ARCHIVE_OUTPUT_DIRECTORY
+                     ${OE_LIBDIR}/openenclave/enclave)
+
 install_enclaves(
   TARGETS
   oedebugmalloc

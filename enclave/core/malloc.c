@@ -2,6 +2,7 @@
 // Licensed under the MIT License.
 
 #include <openenclave/advanced/allocator.h>
+#include <openenclave/advanced/debugmalloc.h>
 #include <openenclave/corelibc/stdlib.h>
 #include <openenclave/internal/fault.h>
 #include <openenclave/internal/globals.h>
@@ -9,6 +10,19 @@
 #include <openenclave/internal/raise.h>
 #include <openenclave/internal/safecrt.h>
 #include <openenclave/internal/utils.h>
+
+void oe_debug_malloc_start_tracking(void)
+{
+    oe_debug_malloc_stop();
+}
+
+void oe_debug_malloc_stop_tracking(void)
+{
+}
+
+void oe_debug_malloc_print_objects(void)
+{
+}
 
 static oe_allocation_failure_callback_t _failure_callback;
 

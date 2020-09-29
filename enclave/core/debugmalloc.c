@@ -1,8 +1,8 @@
 // Copyright (c) Open Enclave SDK contributors.
 // Licensed under the MIT License.
 
-#include "debugmalloc.h"
 #include <openenclave/advanced/allocator.h>
+#include <openenclave/advanced/debugmalloc.h>
 #include <openenclave/corelibc/errno.h>
 #include <openenclave/corelibc/stdlib.h>
 #include <openenclave/enclave.h>
@@ -610,4 +610,28 @@ oe_result_t oe_check_memory_leaks(void)
     if (!oe_disable_debug_malloc_check && oe_debug_malloc_check() != 0)
         return OE_MEMORY_LEAK;
     return OE_OK;
+}
+
+void oe_debug_malloc_start(void)
+{
+    oe_use_debug_malloc = true;
+}
+
+void oe_debug_malloc_stop(void)
+{
+    oe_use_debug_malloc = false;
+}
+
+void oe_debug_malloc_start_tracking(void)
+{
+    oe_debug_malloc_start();
+}
+
+void oe_debug_malloc_stop_tracking(void)
+{
+    oe_debug_malloc_stop();
+}
+
+void oe_debug_malloc_print_objects(void)
+{
 }
