@@ -15,6 +15,8 @@
 #include <openenclave/internal/types.h>
 #include <openenclave/internal/utils.h>
 
+//#include "debugmalloc.h"
+#include "debugmalloc_helper.h"
 /* Flags to control runtime behavior. */
 bool oe_use_debug_malloc = true;
 bool oe_use_debug_malloc_memset = true;
@@ -402,19 +404,6 @@ void* oe_debug_realloc(void* ptr, size_t size)
     }
 }
 
-void* oe_debug_memalign(size_t alignment, size_t size)
-{
-    void* ptr = NULL;
-
-    // The only difference between posix_memalign and the obsolete memalign is
-    // that posix_memalign requires alignment to be a multiple of sizeof(void*).
-    // Adjust the alignment if needed.
-    alignment = oe_round_up_to_multiple(alignment, sizeof(void*));
-
-    oe_debug_posix_memalign(&ptr, alignment, size);
-    return ptr;
-}
-
 int oe_debug_posix_memalign(void** memptr, size_t alignment, size_t size)
 {
     const size_t padding_size = _get_padding_size(alignment);
@@ -439,6 +428,19 @@ int oe_debug_posix_memalign(void** memptr, size_t alignment, size_t size)
     *memptr = header->data;
 
     return 0;
+}
+
+void* oe_debug_memalign(size_t alignment, size_t size)
+{
+    void* ptr = NULL;
+
+    // The only difference between posix_memalign and the obsolete memalign is
+    // that posix_memalign requires alignment to be a multiple of sizeof(void*).
+    // Adjust the alignment if needed.
+    alignment = oe_round_up_to_multiple(alignment, sizeof(void*));
+
+    oe_debug_posix_memalign(&ptr, alignment, size);
+    return ptr;
 }
 
 size_t oe_debug_malloc_usable_size(void* ptr)
