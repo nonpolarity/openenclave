@@ -1,8 +1,8 @@
 // Copyright (c) Open Enclave SDK contributors.
 // Licensed under the MIT License.
 
-#include <openenclave/advanced/debugmalloc.h>
 #include <openenclave/corelibc/stdlib.h>
+#include <openenclave/debugmalloc.h>
 #include <stdio.h>
 
 // Include the trusted debugmalloc header that is generated
@@ -10,21 +10,15 @@
 // sdk tool oeedger8r against the debugmalloc.edl file.
 #include "debugmalloc_t.h"
 
-// Callback function to initiate debugmalloc
-void oe_debug_malloc_init_callback(void)
-{
-    oe_debug_malloc_start_tracking();
-}
-
 // This is the function that the host calls. It prints
 // a message in the enclave before calling back out to
 // the host to print a message from there too.
 void enclave_hello()
 {
-    oe_debug_malloc_stop_tracking();
+    oe_debug_malloc_start_tracking();
 
-    void* buf = oe_malloc();
-    oe_free(buf);
+    //    void* buf = oe_malloc(4096);
+    //    oe_free(buf);
 
     oe_debug_malloc_stop_tracking();
 
