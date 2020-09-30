@@ -13,7 +13,9 @@
 #include "debugmalloc_helper.h"
 void oe_debug_malloc_start_tracking(void)
 {
-    oe_debug_malloc_stop();
+#ifdef(OE_USE_DEBUG_MALLOC)
+    oe_debug_malloc_start();
+#endif /* defined(OE_USE_DEBUG_MALLOC) */
 }
 
 void oe_debug_malloc_stop_tracking(void)
