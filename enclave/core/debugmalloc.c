@@ -4,6 +4,7 @@
 #include <openenclave/advanced/allocator.h>
 #include <openenclave/corelibc/errno.h>
 #include <openenclave/corelibc/stdlib.h>
+#include <openenclave/corelibc/string.h>
 #include <openenclave/debugmalloc.h>
 #include <openenclave/enclave.h>
 #include <openenclave/internal/backtrace.h>
@@ -16,10 +17,13 @@
 #include <openenclave/internal/utils.h>
 
 //#include "debugmalloc.h"
-#include "debugmalloc_helper.h"
+//#include "debugmalloc_helper.h"
 /* Flags to control runtime behavior. */
 bool oe_use_debug_malloc = true;
 bool oe_use_debug_malloc_memset = true;
+
+/* Flags to define the local tracking state. */
+bool oe_use_debug_malloc_tracking = false;
 
 /*
 **==============================================================================
@@ -76,8 +80,11 @@ struct header
     void* addrs[OE_BACKTRACE_MAX];
     uint64_t num_addrs;
 
+    /* Option if current object is tracked */
+    bool local_tracking;
+
     /* Padding to make header a multiple of 16 */
-    uint64_t padding;
+    uint8_t padding[7];
 
     /* Contains HEADER_MAGIC2 */
     uint64_t magic2;
@@ -124,6 +131,7 @@ OE_INLINE footer_t* _get_footer(void* ptr)
         HEADER->size = SIZE;                                         \
         HEADER->num_addrs =                                          \
             (uint64_t)oe_backtrace(HEADER->addrs, OE_BACKTRACE_MAX); \
+        HEADER->local_tracking = oe_use_debug_malloc_tracking;       \
         HEADER->magic2 = HEADER_MAGIC2;                              \
         _get_footer(HEADER->data)->magic = FOOTER_MAGIC;             \
     } while (0)
@@ -614,26 +622,131 @@ oe_result_t oe_check_memory_leaks(void)
     return OE_OK;
 }
 
-void oe_debug_malloc_start(void)
+oe_result_t oe_debug_malloc_tracking_start(void)
 {
-    oe_use_debug_malloc = true;
+    oe_result_t result = OE_UNEXPECTED;
+
+    oe_spin_lock(&_spin);
+    if (!oe_use_debug_malloc_tracking)
+    {
+        oe_use_debug_malloc_tracking = true;
+        result = OE_OK;
+    }
+    oe_spin_unlock(&_spin);
+
+    return result;
 }
 
-void oe_debug_malloc_stop(void)
+oe_result_t oe_debug_malloc_tracking_stop(void)
 {
-    oe_use_debug_malloc = false;
+    oe_result_t result = OE_UNEXPECTED;
+
+    oe_spin_lock(&_spin);
+    if (oe_use_debug_malloc_tracking)
+    {
+        oe_use_debug_malloc_tracking = false;
+        result = OE_OK;
+    }
+    oe_spin_unlock(&_spin);
+
+    return result;
 }
 
-void oe_debug_malloc_start_tracking(void)
+static oe_result_t _copy_string(
+    char** str,
+    size_t* len,
+    size_t* index,
+    char* newstr)
 {
-    oe_debug_malloc_start();
+    oe_result_t result = OE_OK;
+
+    size_t newlen = oe_strlen(newstr);
+    if (*index + newlen >= *len)
+    {
+        while (*index + newlen >= *len)
+        {
+            (*len) *= 2;
+        }
+        *str = oe_realloc(*str, *len);
+        if (*str == NULL)
+        {
+            result = OE_ENOMEM;
+            goto done;
+        }
+    }
+
+    memcpy(*str + *index, newstr, newlen);
+    (*index) += newlen;
+    (*str)[*index] = '\0';
+
+done:
+    return result;
 }
 
-void oe_debug_malloc_stop_tracking(void)
+static oe_result_t _copy_frames(
+    header_t* p,
+    char** str,
+    size_t* len,
+    size_t* index)
 {
-    oe_debug_malloc_stop();
+    oe_result_t result = OE_OK;
+
+    if (*index != 0)
+    {
+        _copy_string(str, len, index, "\n");
+    }
+    for (uint64_t i = 0; i < p->num_addrs; i++)
+    {
+        result = _copy_string(str, len, index, p->addrs[i]);
+        if (result != OE_OK)
+        {
+            goto done;
+        }
+    }
+
+done:
+    return result;
 }
 
-void oe_debug_malloc_print_objects(void)
+oe_result_t oe_debug_malloc_tracking_report(
+    uint64_t* out_object_count,
+    char** report)
 {
+    OE_UNUSED(report);
+
+    oe_result_t result = OE_OK;
+    uint64_t count = 0;
+
+    size_t index = 0;
+    size_t len = 4096;
+    char* str = oe_malloc(len);
+    str[0] = '\0';
+
+    list_t* list = &_list;
+    oe_spin_lock(&_spin);
+    {
+        for (header_t* p = list->head; p; p = p->next)
+        {
+            if (p->local_tracking)
+            {
+                count++;
+                result = _copy_frames(p, &str, &len, &index);
+                if (result != OE_OK)
+                {
+                    goto done;
+                }
+            }
+        }
+    }
+    oe_spin_unlock(&_spin);
+
+    len = index + 1;
+    str = oe_realloc(str, len);
+
+    *out_object_count = count;
+    *report = str;
+
+done:
+    oe_spin_unlock(&_spin);
+    return result;
 }

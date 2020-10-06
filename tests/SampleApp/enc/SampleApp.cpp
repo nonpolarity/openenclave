@@ -1,6 +1,8 @@
 // Copyright (c) Open Enclave SDK contributors.
 // Licensed under the MIT License.
 
+//#include <openenclave/corelibc/stdlib.h>
+#include <openenclave/debugmalloc.h>
 #include <openenclave/enclave.h>
 #include <openenclave/internal/tests.h>
 #include "SampleApp_t.h"
@@ -9,6 +11,18 @@ const char* ProtectedMessage = "Hello world from Enclave\n\0";
 
 int secure_str_patching(const char* src, char* dst, size_t dst_length)
 {
+    oe_debug_malloc_tracking_start();
+
+    //    void* buf = oe_malloc(4096);
+    //    OE_UNUSED(buf);
+    //    oe_free(buf);
+
+    oe_debug_malloc_tracking_stop();
+
+    uint64_t num;
+    char* report;
+    oe_debug_malloc_tracking_report(&num, &report);
+
     const char* running_src = src;
     size_t running_length = dst_length;
     while (running_length > 0 && *running_src != '\0')

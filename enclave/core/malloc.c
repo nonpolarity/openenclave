@@ -10,20 +10,40 @@
 #include <openenclave/internal/safecrt.h>
 #include <openenclave/internal/utils.h>
 
-#include "debugmalloc_helper.h"
-void oe_debug_malloc_start_tracking(void)
+//#include "debugmalloc_helper.h"
+// void oe_debug_malloc_start_tracking(void)
+//{
+//#if defined(OE_USE_DEBUG_MALLOC)
+//    oe_debug_malloc_start();
+//#endif /* defined(OE_USE_DEBUG_MALLOC) */
+//}
+//
+// void oe_debug_malloc_stop_tracking(void)
+//{
+//}
+//
+// void oe_debug_malloc_print_objects(void)
+//{
+//}
+
+oe_result_t oe_debug_malloc_tracking_start(void)
 {
-#ifdef(OE_USE_DEBUG_MALLOC)
-    oe_debug_malloc_start();
-#endif /* defined(OE_USE_DEBUG_MALLOC) */
+    return OE_OK;
 }
 
-void oe_debug_malloc_stop_tracking(void)
+oe_result_t oe_debug_malloc_tracking_stop(void)
 {
+    return OE_OK;
 }
 
-void oe_debug_malloc_print_objects(void)
+oe_result_t oe_debug_malloc_tracking_report(
+    uint64_t* out_num_objects,
+    char** report)
 {
+    OE_UNUSED(out_num_objects);
+    OE_UNUSED(report);
+
+    return OE_OK;
 }
 
 static oe_allocation_failure_callback_t _failure_callback;
