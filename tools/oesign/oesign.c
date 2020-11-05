@@ -630,6 +630,8 @@ int oesign(
                 key_id,
                 properties.config.family_id,
                 properties.config.extended_product_id,
+                properties.config.config_id,
+                properties.config.config_svn,
                 (sgx_sigstruct_t*)properties.sigstruct),
             "oe_sgx_sign_enclave_from_engine() failed: result=%s (%#x)",
             oe_result_str(result),
@@ -665,6 +667,8 @@ int oesign(
             signature_size,
             properties.config.family_id,
             properties.config.extended_product_id,
+            properties.config.config_id,
+            properties.config.config_svn,
             (sgx_sigstruct_t*)properties.sigstruct);
 
         if (result != OE_OK)
@@ -705,6 +709,8 @@ int oesign(
                 pem_size,
                 properties.config.family_id,
                 properties.config.extended_product_id,
+                properties.config.config_id,
+                properties.config.config_svn,
                 (sgx_sigstruct_t*)properties.sigstruct),
             "oe_sgx_sign_enclave() failed: result=%s (%#x)",
             oe_result_str(result),
@@ -752,6 +758,8 @@ int oedigest(const char* enclave, const char* conffile, const char* digest_file)
             properties.config.security_version,
             properties.config.family_id,
             properties.config.extended_product_id,
+            properties.config.config_id,
+            properties.config.config_svn,
             &digest),
         "oe_sgx_get_sigstruct_digest(): result=%s (%#x)",
         oe_result_str(result),

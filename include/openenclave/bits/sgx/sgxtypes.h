@@ -219,10 +219,16 @@ typedef struct _sgx_sigstruct
     /* (1026) ISV assigned SVN */
     uint16_t isvsvn;
 
+    /* (1028) ISV assigned config_id */
+    uint8_t config_id[64];
+
+    /* (1092) ISV assigned config_svn */
+    uint16_t config_svn;
+
     /* ======== BUFFER-SECTION ======== */
 
-    /* (1028) Must be 0 */
-    uint8_t reserved4[12];
+    /* (1094) Must be 0 */
+    uint8_t reserved4[14];
 
     /* (1040) Q1 value for RSA Signature Verification */
     uint8_t q1[OE_KEY_SIZE];
@@ -232,7 +238,7 @@ typedef struct _sgx_sigstruct
 } sgx_sigstruct_t;
 OE_PACK_END
 
-OE_CHECK_SIZE(sizeof(sgx_sigstruct_t), 1808);
+OE_CHECK_SIZE(sizeof(sgx_sigstruct_t), 1876);
 
 #if __x86_64__ || _M_X64
 OE_CHECK_SIZE(sizeof(sgx_sigstruct_t), OE_SGX_SIGSTRUCT_SIZE);

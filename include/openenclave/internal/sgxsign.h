@@ -40,6 +40,8 @@ oe_result_t oe_sgx_sign_enclave(
     size_t pem_size,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
+    const uint8_t* config_id,
+    uint16_t config_svn,
     sgx_sigstruct_t* sigstruct);
 
 /**
@@ -73,6 +75,8 @@ oe_result_t oe_sgx_sign_enclave_from_engine(
     const char* key_id,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
+    const uint8_t* config_id,
+    uint16_t config_svn,
     sgx_sigstruct_t* sigstruct);
 
 /**
@@ -96,6 +100,8 @@ oe_result_t oe_sgx_get_sigstruct_digest(
     uint16_t security_version,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
+    const uint8_t* config_id,
+    uint16_t config_svn,
     OE_SHA256* digest);
 
 /**
@@ -134,6 +140,8 @@ oe_result_t oe_sgx_digest_sign_enclave(
     size_t digest_signature_size,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
+    const uint8_t* config_id,
+    uint16_t config_svn,
     sgx_sigstruct_t* sigstruct);
 
 OE_EXTERNC_END
