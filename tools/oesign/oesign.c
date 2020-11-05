@@ -37,6 +37,12 @@ typedef struct _optional_oe_uuid_t
     oe_uuid_t value;
 } optional_oe_uuid_t;
 
+typedef struct _optional_string
+{
+    bool has_value;
+    str_t* value;
+} optional_string;
+
 // Options loaded from .conf file. Uninitialized fields contain the maximum
 // integer value for the corresponding type.
 typedef struct _config_file_options
@@ -49,6 +55,8 @@ typedef struct _config_file_options
     optional_uint16_t security_version;
     optional_oe_uuid_t family_id;
     optional_oe_uuid_t extended_product_id;
+    optional_string config_id;
+    optional_uint16_t config_svn;
 } config_file_options_t;
 
 int uuid_from_string(str_t* str, uint8_t* uuid, size_t expected_size);
@@ -311,6 +319,47 @@ static int _load_config_file(const char* path, config_file_options_t* options)
             memcpy(&options->extended_product_id.value, &id, sizeof(id));
             options->extended_product_id.has_value = true;
         }
+        else if (strcmp(str_ptr(&lhs), "Config_id_file") == 0)
+        {
+            if (options->config_id.has_value)
+            {
+                oe_err(
+                    "%s(%zu): Duplicate 'Config_id_file' value provided",
+                    path,
+                    line);
+                goto done;
+            }
+
+            options->config_id.value = &rhs;
+            options->config_id.has_value = true;
+        }
+        else if (strcmp(str_ptr(&lhs), "Config_svn") == 0)
+        {
+            uint16_t n;
+
+            if (options->security_version.has_value)
+            {
+                oe_err(
+                    "%s(%zu): Duplicate 'SecurityVersion' value provided",
+                    path,
+                    line);
+                goto done;
+            }
+
+            if (str_ptr(&rhs)[0] == '-' || str_u16(&rhs, &n) != 0 ||
+                !oe_sgx_is_valid_security_version(n))
+            {
+                oe_err(
+                    "%s(%zu): bad value for 'SecurityVersion': %s",
+                    path,
+                    line,
+                    str_ptr(&rhs));
+                goto done;
+            }
+
+            options->config_svn.value = n;
+            options->config_svn.has_value = true;
+        }
         else
         {
             oe_err("%s(%zu): unknown setting: %s", path, line, str_ptr(&rhs));
@@ -477,6 +526,14 @@ void _merge_config_file_options(
     /* If NumTCS option is present */
     if (options->num_tcs.has_value)
         properties->header.size_settings.num_tcs = options->num_tcs.value;
+
+    /* If config_id option is present */
+    if (options->config_svn.has_value)
+        properties->config.config_svn = options->config_svn.value;
+
+    if (options->config_id.has_value)
+    {
+    }
 }
 
 oe_result_t _initialize_enclave_properties(
@@ -495,10 +552,10 @@ oe_result_t _initialize_enclave_properties(
     }
 
     /* Load the enclave properties from the enclave.
-     * Note that oesign expects that the enclave must already have the .oeinfo
-     * section allocated, and cannot currently inject it into the ELF.
-     * The load stack (oe_load_enclave_image) requires that the oeinfo_rva be
-     * found or fails the load.
+     * Note that oesign expects that the enclave must already have the
+     * .oeinfo section allocated, and cannot currently inject it into the
+     * ELF. The load stack (oe_load_enclave_image) requires that the
+     * oeinfo_rva be found or fails the load.
      */
     OE_CHECK_ERR(
         oe_read_oeinfo_sgx(enclave, properties),
@@ -507,7 +564,8 @@ oe_result_t _initialize_enclave_properties(
         oe_result_str(result),
         result);
 
-    /* Merge the loaded configuration file with existing enclave properties */
+    /* Merge the loaded configuration file with existing enclave properties
+     */
     _merge_config_file_options(properties, &options);
 
     /* Check whether enclave properties are valid */
