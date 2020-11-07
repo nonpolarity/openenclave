@@ -573,8 +573,6 @@ static oe_result_t _init_sigstruct(
     uint16_t security_version,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
-    const uint8_t* config_id,
-    uint16_t config_svn,
     sgx_sigstruct_t* sigstruct)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -657,13 +655,6 @@ static oe_result_t _init_sigstruct(
                 sizeof(sigstruct->isvextprodid),
                 extended_product_id,
                 sizeof(*extended_product_id)));
-        if (config_id)
-            OE_CHECK(oe_memcpy_s(
-                sigstruct->config_id,
-                sizeof(sigstruct->config_id),
-                config_id,
-                sizeof(sigstruct->config_id)));
-        sigstruct->config_svn = config_svn;
         sigstruct->attributemask.flags |= SGX_FLAGS_KSS;
     }
 
@@ -695,8 +686,6 @@ oe_result_t oe_sgx_sign_enclave_from_engine(
     const char* key_id,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
-    const uint8_t* config_id,
-    uint16_t config_svn,
     sgx_sigstruct_t* sigstruct)
 {
     oe_rsa_private_key_t rsa;
@@ -722,8 +711,6 @@ oe_result_t oe_sgx_sign_enclave_from_engine(
         security_version,
         family_id,
         extended_product_id,
-        config_id,
-        config_svn,
         sigstruct));
     OE_CHECK(_sign_sigstruct(&rsa, sigstruct));
 
@@ -745,8 +732,6 @@ oe_result_t oe_sgx_sign_enclave(
     size_t pem_size,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
-    const uint8_t* config_id,
-    uint16_t config_svn,
     sgx_sigstruct_t* sigstruct)
 {
     oe_rsa_private_key_t rsa;
@@ -772,8 +757,6 @@ oe_result_t oe_sgx_sign_enclave(
         security_version,
         family_id,
         extended_product_id,
-        config_id,
-        config_svn,
         sigstruct));
     OE_CHECK(_sign_sigstruct(&rsa, sigstruct));
 
@@ -793,8 +776,6 @@ oe_result_t oe_sgx_get_sigstruct_digest(
     uint16_t security_version,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
-    const uint8_t* config_id,
-    uint16_t config_svn,
     OE_SHA256* digest)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -815,8 +796,6 @@ oe_result_t oe_sgx_get_sigstruct_digest(
         security_version,
         family_id,
         extended_product_id,
-        config_id,
-        config_svn,
         &sigstruct));
     OE_CHECK(_hash_sigstruct(&sigstruct, digest));
 
@@ -837,8 +816,6 @@ oe_result_t oe_sgx_digest_sign_enclave(
     size_t digest_signature_size,
     const uint8_t* family_id,
     const uint8_t* extended_product_id,
-    const uint8_t* config_id,
-    uint16_t config_svn,
     sgx_sigstruct_t* sigstruct)
 {
     oe_result_t result = OE_UNEXPECTED;
@@ -870,8 +847,6 @@ oe_result_t oe_sgx_digest_sign_enclave(
         security_version,
         family_id,
         extended_product_id,
-        config_id,
-        config_svn,
         sigstruct));
 
     /* Verify that the digest of the resulting sigstruct still

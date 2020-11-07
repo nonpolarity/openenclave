@@ -256,8 +256,6 @@ static oe_result_t _get_sig_struct(
             OE_DEBUG_SIGN_KEY_SIZE,
             properties->config.family_id,
             properties->config.extended_product_id,
-            properties->config.config_id,
-            properties->config.config_svn,
             sigstruct));
     }
     else
