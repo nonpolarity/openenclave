@@ -547,6 +547,10 @@ void _merge_config_file_options(
 
     if (options->config_id.has_value)
     {
+        for (int i = 0; i < 64; i++)
+        {
+            properties->config.config_id[i] = options->config_id.value[i];
+        }
     }
 }
 
