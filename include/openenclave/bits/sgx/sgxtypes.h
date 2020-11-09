@@ -607,7 +607,10 @@ typedef struct _sgx_report_body
     uint8_t mrsigner[OE_SHA256_SIZE];
 
     /* (160) */
-    uint8_t reserved3[96];
+    uint8_t reserved3[32];
+
+    /* (192) CONFIGID */
+    uint8_t config_id[64];
 
     /* (256) Enclave product ID */
     uint16_t isvprodid;
@@ -615,8 +618,11 @@ typedef struct _sgx_report_body
     /* (258) Enclave security version */
     uint16_t isvsvn;
 
-    /* (260) Reserved */
-    uint8_t reserved4[44];
+    /* (260) CONFIGSVN */
+    uint16_t config_svn;
+
+    /* (262) Reserved */
+    uint8_t reserved4[42];
 
     /* (304) Enclave family ID */
     uint8_t isvfamilyid[16];
